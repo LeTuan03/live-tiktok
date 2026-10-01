@@ -1,0 +1,42 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Distribution
+dist/
+build/
+*.egg-info/
+*.spec
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# App data (local)
+app_data/
+
+# TTS cache
+tts_cache/
