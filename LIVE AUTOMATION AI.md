@@ -1,260 +1,558 @@
-Bạn là Senior Software Architect, Senior Desktop Application Engineer, Senior React/TypeScript Engineer và Senior Rust Engineer. Hãy xây dựng từ đầu đến cuối một ứng dụng Windows Desktop có tên LiveFlow Studio, phục vụ tự động hóa livestream bán hàng trên TikTok và Shopee bằng video có sẵn, AI Voice, quản lý sản phẩm và AI hỗ trợ bình luận.
+# MASTER PROMPT — BUILD AI TIKTOK LIVE COMMERCE STUDIO WITH PYTHON
 
-MỤC TIÊU: Xây dựng ứng dụng production-oriented, chạy trên Windows 10/11, giao diện tiếng Việt, có thể chạy nền qua System Tray, tối ưu tài nguyên, quản lý video/sản phẩm/kịch bản, điều khiển OBS Studio qua OBS WebSocket, phát video và AI Voice, quản lý lịch giới thiệu sản phẩm, cung cấp AI trả lời bình luận và tích hợp TikTok/Shopee qua các adapter có kiểm tra capability. Không giả lập API chưa được hỗ trợ, không vượt CAPTCHA, không giả mạo tương tác người dùng hoặc tuyên bố tích hợp thành công khi chưa xác minh.
+## 1. Vai trò
 
-VAI TRÒ VÀ CÁCH LÀM VIỆC:
-- Làm việc như một kỹ sư senior chịu trách nhiệm hoàn thành sản phẩm, không chỉ viết kế hoạch hoặc scaffold.
-- Trước tiên kiểm tra repository hiện tại, môi trường, phiên bản công cụ và các file có sẵn. Nếu thư mục trống, khởi tạo dự án. Không ghi đè dữ liệu người dùng.
-- Tạo docs/architecture.md, docs/implementation-plan.md, docs/integration-capabilities.md và README.md.
-- Chia công việc thành các phase nhỏ, thực hiện lần lượt, chạy build/test/typecheck/lint sau mỗi phase và tự sửa lỗi.
-- Không để TODO, mock API hoặc nút giả trong luồng production. Demo mode phải được gắn nhãn rõ ràng và tách biệt khỏi production.
-- Nếu API/token/credential của nền tảng chưa có, xây interface, capability status, hướng dẫn cấu hình và mock adapter chỉ dùng trong demo. Không tự bịa endpoint hoặc API key.
-- Khi gặp quyết định không ảnh hưởng kiến trúc, tự chọn phương án ổn định, ghi lại trong docs và tiếp tục. Chỉ hỏi người dùng khi thực sự cần credential, quyền truy cập hoặc quyết định nghiệp vụ không thể suy ra.
+Bạn là một Senior Python Desktop Engineer, AI Engineer và Software Architect có kinh nghiệm xây dựng ứng dụng Windows, xử lý media, tích hợp API, AI Voice, database và hệ thống chạy nền.
 
-TECH STACK:
-- Tauri 2 + Rust cho Windows desktop và tác vụ nền.
-- React + TypeScript strict mode + Vite.
-- Tailwind CSS và component system nhất quán.
-- SQLite local database, migrations có version.
-- Tokio async runtime, bounded channels cho event/audio/task queues.
-- OBS Studio điều khiển qua OBS WebSocket.
-- FFmpeg/ffprobe cho kiểm tra metadata, chuẩn hóa media khi cần; không tự xây streaming engine thay OBS.
-- AI provider abstraction hỗ trợ OpenAI/Gemini hoặc provider tương thích qua cấu hình.
-- TTS provider abstraction, ưu tiên cloud TTS trong MVP, có cache và khả năng thêm local provider.
-- Rust tracing/logging, structured error handling.
-- Tauri installer cho Windows.
+Nhiệm vụ của bạn là **xây dựng một ứng dụng desktop Windows hoàn chỉnh từ đầu đến cuối**, không chỉ viết tài liệu hoặc tạo prototype giao diện.
 
-PRODUCT NAME:
-LiveFlow Studio
-Tagline: AI-powered LIVE Automation for TikTok & Shopee
-Ngôn ngữ mặc định: Tiếng Việt.
-Timezone mặc định: Asia/Ho_Chi_Minh, cho phép cấu hình.
+Ứng dụng dùng AI để hỗ trợ livestream bán hàng trên TikTok theo danh sách sản phẩm do người dùng quản lý.
 
-PHẠM VI SẢN PHẨM:
-Ứng dụng hỗ trợ người bán vận hành livestream bằng video có sẵn kết hợp lời giới thiệu sản phẩm được tạo bằng AI Voice. Ứng dụng quản lý danh mục sản phẩm, playlist, kịch bản, lịch phát lời thoại, hàng đợi âm thanh, AI hỗ trợ bình luận, trạng thái OBS và trạng thái tích hợp từng nền tảng.
-Ứng dụng không tự tạo hoặc phát livestream bằng cách vượt qua cơ chế bảo vệ nền tảng. Luồng phát sử dụng OBS và phương thức phát được nền tảng/tài khoản hỗ trợ. CAPTCHA hoặc xác minh bảo mật phải yêu cầu người dùng xử lý thủ công.
+Tên dự án: **LiveFlow AI Studio**
 
-KIẾN TRÚC MODULE:
-1. Desktop Shell: window lifecycle, tray, notifications, startup preference, settings.
-2. Dashboard: tổng quan trạng thái, phiên đang chạy, OBS, AI, CPU/RAM, logs.
-3. Media Library: import video/audio/image, metadata, validation, thumbnail, duration, file integrity.
-4. Playlist Manager: tạo playlist, reorder, loop, chọn video, cấu hình scene/source.
-5. Product Catalog: CRUD sản phẩm, SKU, tên, giá, mô tả, ưu điểm đã xác minh, ảnh/video, FAQ, chính sách, trạng thái.
-6. Script Studio: tạo/sửa kịch bản theo sản phẩm, phiên bản ngắn/dài, preview và duyệt nội dung.
-7. Automation Scheduler: lịch giới thiệu sản phẩm, thời gian nghỉ, ưu tiên, chống chạy trùng, pause/resume.
-8. Voice Engine: TTS, voice settings, cache, queue, retry, audio routing, preview, mute/stop.
-9. AI Comment Assistant: nhận comment từ nguồn được hỗ trợ hoặc nhập thủ công, normalize, deduplicate, classify intent, retrieve product facts, generate answer, moderation, approve/send nếu capability được hỗ trợ.
-10. Platform Integration: TikTok adapter, Shopee adapter, OBS adapter. Mỗi adapter khai báo capabilities thực tế: stream workflow, comment read, comment send, product list, product pin, authentication, status monitoring. Unsupported capability phải hiển thị Unsupported/Requires access, không mô phỏng thành công.
-11. Diagnostics: logs, health checks, export diagnostic bundle, error reporting local.
-12. Demo Mode: event fixtures và simulated stream state, luôn có nhãn DEMO.
+Ngôn ngữ giao diện: Tiếng Việt.
 
-GIAO DIỆN:
-Thiết kế dark-first, hiện đại, chuyên nghiệp, responsive trong cửa sổ desktop, sidebar cố định, topbar có trạng thái ứng dụng và nút quick actions. Không dùng emoji làm icon chính; dùng icon library nhất quán.
-Các trang:
-- Dashboard
-- LIVE Studio
-- Media Library
-- Playlist
-- Products
-- Script Studio
-- Automation Scheduler
-- AI Comment Assistant
-- Voice Studio
-- Platform Connections
-- Logs & Diagnostics
-- Settings
+Ngôn ngữ lập trình chính: Python.
 
-Dashboard hiển thị:
-- Trạng thái ứng dụng và tray.
-- OBS connected/disconnected, streaming/recording, dropped frames nếu OBS cung cấp.
-- TikTok và Shopee connection/capability state.
-- Phiên LIVE hiện tại, thời lượng, playlist, sản phẩm hiện tại.
-- AI/TTS status, queue length.
-- CPU/RAM app process nếu khả thi, không gộp nhầm tài nguyên OBS.
-- Các cảnh báo cần người dùng xử lý.
+Hệ điều hành mục tiêu: Windows 10/11 64-bit.
 
-LIVE STUDIO:
-- Preview/scene status từ OBS khi có thể.
-- Start/stop/pause/resume automation, không tự start stream nếu chưa được người dùng xác nhận.
-- Chọn platform profile và OBS scene.
-- Chọn playlist, sản phẩm và automation schedule.
-- Quick mute voice, stop speech, pause scheduler.
-- Hiển thị trạng thái thật từ OBS, không chỉ trạng thái local giả định.
+Ưu tiên: ổn định, dễ sử dụng, tiết kiệm tài nguyên, có khả năng mở rộng và đóng gói thành bộ cài Windows.
 
-MEDIA:
-- Import nhiều file.
-- Hỗ trợ MP4/MOV/MKV/MP3/WAV tùy khả năng FFmpeg/OBS.
-- Kiểm tra file tồn tại, duration, resolution, codec, audio stream.
-- Thumbnail/preview nếu khả thi.
-- Không đọc toàn bộ video vào RAM.
-- File path được lưu an toàn, có xử lý file bị di chuyển/mất.
-- Cho phép chọn video lặp, playlist tuần tự và chuyển cảnh thông qua OBS source/scene.
+---
 
-PRODUCTS:
-- CRUD, search, filter, pagination nếu danh sách lớn.
-- Trường: id, sku, name, price, currency, description, verified_features, target_audience, FAQ, policies, media references, status, createdAt, updatedAt.
-- Import/export CSV có validate, preview lỗi trước khi import.
-- Giá/ưu đãi phải là dữ liệu người dùng xác nhận. AI không được tự bịa giá, công dụng, tồn kho, miễn phí vận chuyển hoặc chính sách.
-- Không tuyên bố sản phẩm đã ghim nếu chưa nhận được xác nhận thực tế từ tích hợp.
+## 2. Mục tiêu sản phẩm
 
-SCRIPT STUDIO:
-- Tạo script từ product facts.
-- Mẫu 15s, 30s, 60s, tùy chỉnh.
-- Cho phép chỉnh sửa thủ công, lưu version, preview TTS.
-- Prompt AI phải chỉ dùng dữ liệu sản phẩm được cung cấp; thiếu dữ liệu thì nói cần bổ sung.
-- Có checklist duyệt script trước khi phát.
+Xây dựng công cụ hỗ trợ người bán vận hành livestream theo quy trình:
 
-SCHEDULER:
-- Lên lịch sản phẩm theo thời gian hoặc thứ tự playlist.
-- Có repeat interval, cooldown, timezone, start/end time.
-- Có pause/resume/skip/stop.
-- Không chạy hai tác vụ giới thiệu chồng nhau.
-- Persist task state để khôi phục sau restart.
-- Có idempotency key và chống task chạy trùng.
-- Scheduler chỉ phát lời giới thiệu; hành động ghim sản phẩm phải thông qua capability hỗ trợ hoặc hướng dẫn thao tác thủ công.
+1. Người dùng nhập danh sách sản phẩm.
+2. Người dùng thêm video giới thiệu hoặc video trình chiếu sản phẩm.
+3. AI đọc thông tin sản phẩm và tạo kịch bản giới thiệu.
+4. TTS chuyển kịch bản thành giọng nói tự nhiên.
+5. Ứng dụng điều phối video, âm thanh và thứ tự giới thiệu sản phẩm.
+6. OBS Studio đảm nhiệm việc phát video và livestream.
+7. Ứng dụng hỗ trợ theo dõi bình luận và đề xuất câu trả lời bằng AI.
+8. Người dùng có thể duyệt câu trả lời trước khi gửi.
+9. Ứng dụng quản lý trạng thái phiên LIVE, lịch phát, nhật ký và lỗi.
 
-VOICE ENGINE:
-- TTS provider interface: synthesize(text, voice, speed, format) -> audio asset.
-- Voice settings: voice, speed, volume, language, provider.
-- Preview trước khi phát LIVE.
-- Cache theo hash của text + voice + speed + provider.
-- Bounded audio queue, sequential playback, no overlap.
-- Ưu tiên câu trả lời trực tiếp theo cấu hình; cho phép interrupt/pause scheduled speech.
-- Nút global Mute, Stop current speech, Clear queue.
-- Xử lý timeout, retry giới hạn, fallback provider nếu cấu hình.
-- Không phát lỗi hệ thống hoặc dữ liệu nhạy cảm ra luồng LIVE.
-- Kết nối audio qua OBS source/virtual audio routing được cấu hình và kiểm thử. Không giả định mọi thiết bị Windows có cùng tên.
+**Không được giả định rằng TikTok cung cấp API công khai cho mọi chức năng livestream.** Mọi chức năng đọc/gửi bình luận, ghim sản phẩm hoặc điều khiển LIVE phải được kiểm tra khả năng tích hợp thực tế trước khi triển khai.
 
-AI COMMENT ASSISTANT:
-- Comment source interface để sau này kết nối nguồn chính thức hoặc nguồn người dùng nhập.
-- Comment schema gồm platform, externalId, username nếu được phép, text, timestamp, product context, processing state.
-- Deduplicate bằng external id/hash.
-- Intent categories: price, product_details, availability, shipping, purchase, comparison, complaint, spam, other.
-- Retrieve facts từ catalog/FAQ, không cho model tự suy diễn.
-- Output structured JSON: intent, answer, confidence, citedProductFacts, requiresHumanReview.
-- Validate output, độ dài, moderation và rate limits.
-- Manual approval là mặc định.
-- Auto-send chỉ bật khi adapter khai báo commentSend=true, quyền đã được xác minh, người dùng bật rõ ràng và có rate limit.
-- Nếu không có nguồn comment chính thức, cho phép nhập thủ công hoặc demo events; UI phải nói rõ không có live comment connection.
-- Complaint, refund, personal data, legal/medical/financial claims, nội dung không đủ dữ liệu phải chuyển người vận hành.
-- Không tự động gửi spam, không giả danh người thật hoặc tạo tương tác giả.
+---
 
-PLATFORM ADAPTERS:
-- Define TypeScript/Rust interfaces cho TikTok, Shopee, OBS.
-- Mỗi adapter có getCapabilities(), connect(), disconnect(), getStatus(), supported operations.
-- TikTok: ưu tiên phương thức phát chính thức/được tài khoản hỗ trợ, OBS/RTMP khi có stream key hợp lệ, các API chỉ khi quyền được cấp. Không scrape private endpoints, không reverse-engineer auth, không lưu mật khẩu TikTok/Shopee trực tiếp.
-- Shopee: hỗ trợ quy trình PC LIVE/OBS theo quyền tài khoản và hướng dẫn hiện hành. Không giả định có public API cho live comments/product pin nếu chưa xác minh.
-- Không bypass CAPTCHA, OTP, login verification, anti-bot hoặc platform restrictions. Khi gặp challenge, pause và thông báo người dùng xử lý.
-- Product pin/manual operation có checklist và deep link nếu URL chính thức được cấu hình; không tự tạo URL.
-- Tạo docs/integration-capabilities.md nêu rõ verified, requires account access, unsupported, manual workflow.
+## 3. Công nghệ bắt buộc
 
-OBS INTEGRATION:
-- OBS WebSocket client, configurable host/port/password.
-- Mặc định localhost, không expose WebSocket ra LAN.
-- Hỗ trợ connect/disconnect, get version/status, list scenes/sources, select scene, media source controls nếu OBS API hỗ trợ.
-- Không lưu OBS password plaintext; dùng Windows Credential Manager hoặc cơ chế secure storage phù hợp.
-- Validate OBS connection, hiển thị lỗi hướng dẫn bật WebSocket.
-- Không tự động đổi cấu hình stream key hoặc gửi stream key tới log.
-- Reconnect có exponential backoff và giới hạn.
+### Desktop UI
 
-DATABASE:
-Dùng SQLite migrations có version. Tạo các bảng tối thiểu:
-- app_settings
-- platform_connections (chỉ metadata/secret reference, không plaintext secret)
-- live_sessions
-- media_assets
-- playlists
-- playlist_items
-- products
-- product_media
-- product_faqs
-- product_scripts
-- automation_rules
-- scheduled_tasks
-- comment_events
-- ai_responses
-- voice_cache
-- event_logs
-- schema_migrations
-Có indexes cho external ids, timestamps, state, product lookup. Dùng transaction cho các thao tác nhiều bảng. Có backup/export database và phục hồi an toàn.
+* Python 3.12+
+* PySide6 / Qt
+* Qt Designer nếu thực sự hữu ích; không bắt buộc.
+* Giao diện responsive theo kích thước cửa sổ.
+* Hỗ trợ Windows Dark Mode hoặc giao diện tối hiện đại.
 
-SECURITY:
-- Không hardcode API keys, passwords, tokens hoặc stream keys.
-- Secrets dùng Windows Credential Manager/secure storage; chỉ lưu secret reference trong SQLite.
-- Redact credentials trong logs và diagnostics.
-- Validate input, sanitize file paths, giới hạn kích thước upload/import.
-- Không chạy arbitrary shell commands từ UI.
-- IPC commands có validate arguments và allowlist.
-- OBS WebSocket chỉ bind localhost mặc định.
-- AI requests không gửi dữ liệu nhạy cảm không cần thiết.
-- Có nút disconnect/revoke local credentials.
+### Backend
 
-BACKGROUND & WINDOWS:
-- Minimize to tray, menu Open, Pause Automation, Mute Voice, Exit.
-- Close window không đồng nghĩa Exit nếu user bật minimize-to-tray.
-- Exit phải hỏi xác nhận nếu automation/OBS stream đang hoạt động; không tự kill OBS.
-- Optional start with Windows, mặc định off.
-- Notifications cho OBS disconnect, TTS failure, verification required, automation paused.
-- Không ẩn tiến trình nhằm né phát hiện; trạng thái luôn kiểm soát được qua tray.
-- Persist app preferences và restore safe state sau restart. Không tự resume phát LIVE hoặc gửi comment sau crash nếu chưa có xác nhận.
+* Python
+* asyncio cho tác vụ bất đồng bộ.
+* QThread hoặc cơ chế worker phù hợp để không block UI.
+* Pydantic cho validation dữ liệu.
+* SQLAlchemy 2.x.
+* SQLite làm database mặc định.
 
-PERFORMANCE:
-- Event-driven, tránh polling dày.
-- Bounded channels/queues và backpressure.
-- Không load toàn bộ media vào memory.
-- Lazy-load trang và preview.
-- TTS cache.
-- Giới hạn AI concurrency và timeout.
-- Cleanup temp files.
-- Graceful cancellation và shutdown.
-- Mục tiêu benchmark app idle RAM 50-120 MB và dashboard mở 100-220 MB, xem là target cần đo, không phải cam kết. Ghi rõ OBS/FFmpeg memory riêng.
-- Thêm performance diagnostics và stress test.
+### Media
 
-ERROR HANDLING:
-- Typed errors, user-friendly Vietnamese messages.
-- Retry chỉ với lỗi transient, exponential backoff + jitter.
-- Không retry vô hạn với auth failure, permission denied hoặc verification required.
-- Log correlation id cho mỗi automation run.
-- Mọi tác vụ có state pending/running/succeeded/failed/requires_user_action/cancelled.
-- Chỉ ghi succeeded khi có xác nhận từ module thực hiện.
+* OBS Studio.
+* OBS WebSocket 5.x.
+* FFmpeg và ffprobe.
+* Không tự viết video encoder nếu không cần thiết.
+* Không decode hoặc xử lý video nặng trên UI thread.
 
-TESTING:
-- Unit tests cho scheduler, deduplication, product validation, script validation, TTS cache key, capability gating.
-- Integration tests cho SQLite migrations/repository, OBS adapter mock, AI/TTS provider mock.
-- UI tests cho critical flows nếu setup phù hợp.
-- Test offline, timeout, retry, corrupted media, missing file, OBS disconnected, provider quota, app restart.
-- Demo mode có fixture, nhưng test production paths không phụ thuộc demo.
-- Build Windows release và kiểm tra installer.
+### AI
 
-ACCEPTANCE CRITERIA:
-1. App cài và chạy trên Windows 10/11.
-2. Dashboard hiển thị trạng thái thật hoặc label demo rõ ràng.
-3. Import video, tạo playlist, phát qua OBS và loop theo cấu hình.
-4. CRUD sản phẩm và import/export CSV hoạt động.
-5. Tạo script từ verified product facts, cho phép chỉnh sửa.
-6. TTS preview và phát qua OBS audio source, không chồng tiếng.
-7. Scheduler phát lời giới thiệu đúng lịch, có pause/stop/skip.
-8. AI tạo câu trả lời dựa trên FAQ/catalog; manual approval mặc định.
-9. Unsupported platform capabilities được thể hiện rõ, không giả lập thành công.
-10. Minimize-to-tray hoạt động, có mute/pause/exit.
-11. Logs không chứa secrets.
-12. Build, lint, typecheck, tests đạt; có README hướng dẫn cài đặt và cấu hình.
+Thiết kế provider abstraction để có thể thay đổi nhà cung cấp:
 
-DELIVERY ORDER:
-Phase 0: Inspect repo/environment, write architecture and capability assumptions.
-Phase 1: Initialize app, design system, navigation, settings, SQLite migrations, tray.
-Phase 2: Media library + OBS integration + playlist playback.
-Phase 3: Product catalog + script studio + scheduler.
-Phase 4: TTS provider + cache + audio queue + OBS audio routing.
-Phase 5: AI comment assistant + moderation + manual approval + demo events.
-Phase 6: TikTok/Shopee capability adapters and documented supported workflows.
-Phase 7: diagnostics, security review, performance testing, packaging, README.
+* LLM provider cho tạo kịch bản và xử lý bình luận.
+* TTS provider cho tạo giọng nói.
+* Có thể bổ sung provider local trong tương lai.
 
-At each phase:
-- Implement actual working code.
-- Run relevant tests, lint, typecheck and build.
-- Fix errors before proceeding.
-- Update docs and report changed files, commands run, test results, known limitations and next phase.
-- Do not stop after producing a plan. Continue implementation until all feasible phases are complete. For unavailable external credentials or platform permissions, complete the adapter boundary, UI states, tests, setup guide and clearly document the exact blocker.
+Không hardcode API key trong source code.
 
-Begin now by inspecting the project directory and environment, then execute Phase 0 and Phase 1. Continue through the remaining phases autonomously as far as the environment allows.
+### Packaging
+
+* PyInstaller hoặc Nuitka.
+* Tạo bộ cài Windows.
+* Có hướng dẫn cài đặt OBS và FFmpeg.
+* Có kiểm tra dependency khi khởi động.
+
+---
+
+## 4. Kiến trúc hệ thống
+
+Thiết kế theo module, tách biệt UI, business logic, database và integration.
+
+Cấu trúc tham khảo:
+
+```text
+liveflow-ai-studio/
+├── app/
+│   ├── main.py
+│   ├── bootstrap.py
+│   ├── config/
+│   ├── core/
+│   │   ├── events.py
+│   │   ├── task_manager.py
+│   │   ├── logging.py
+│   │   └── exceptions.py
+│   ├── database/
+│   │   ├── models/
+│   │   ├── repositories/
+│   │   ├── migrations/
+│   │   └── session.py
+│   ├── services/
+│   │   ├── product_service.py
+│   │   ├── script_service.py
+│   │   ├── playlist_service.py
+│   │   ├── tts_service.py
+│   │   ├── live_session_service.py
+│   │   └── comment_service.py
+│   ├── integrations/
+│   │   ├── obs/
+│   │   ├── ffmpeg/
+│   │   ├── llm/
+│   │   ├── tts/
+│   │   └── tiktok/
+│   ├── workers/
+│   ├── ui/
+│   │   ├── windows/
+│   │   ├── pages/
+│   │   ├── dialogs/
+│   │   ├── components/
+│   │   └── styles/
+│   └── utils/
+├── assets/
+├── tests/
+├── scripts/
+├── docs/
+├── requirements.txt
+├── pyproject.toml
+└── README.md
+```
+
+Có thể điều chỉnh cấu trúc nếu có lý do kỹ thuật rõ ràng. Không tạo quá nhiều abstraction không cần thiết.
+
+---
+
+## 5. Các màn hình bắt buộc
+
+### 5.1 Dashboard
+
+Hiển thị:
+
+* Trạng thái ứng dụng.
+* Trạng thái OBS.
+* Trạng thái kết nối TikTok nếu có tích hợp hợp lệ.
+* Số lượng sản phẩm.
+* Số lượng video.
+* Phiên LIVE gần nhất.
+* Tình trạng hàng đợi TTS.
+* Nhật ký cảnh báo và lỗi gần đây.
+
+### 5.2 Quản lý sản phẩm
+
+Cho phép:
+
+* Thêm, sửa, xóa sản phẩm.
+* Tìm kiếm và lọc sản phẩm.
+* Import/export CSV.
+* Bật/tắt sản phẩm.
+* Sắp xếp thứ tự giới thiệu.
+* Gắn video vào sản phẩm.
+* Gắn kịch bản riêng vào sản phẩm.
+
+Thông tin sản phẩm gồm:
+
+* Tên sản phẩm.
+* Mã sản phẩm/SKU.
+* Danh mục.
+* Giá bán.
+* Giá khuyến mãi nếu có.
+* Mô tả.
+* Tính năng đã được xác minh.
+* Thành phần/chất liệu nếu có.
+* Kích thước hoặc biến thể.
+* Đối tượng sử dụng.
+* Hướng dẫn sử dụng.
+* Lưu ý/cảnh báo.
+* URL sản phẩm.
+* Đường dẫn ảnh.
+* Đường dẫn video.
+* Trạng thái hoạt động.
+
+AI chỉ được sử dụng thông tin có trong dữ liệu sản phẩm hoặc nguồn người dùng đã cung cấp. Không tự bịa công dụng, chứng nhận, giá, ưu đãi, tồn kho hoặc cam kết hiệu quả.
+
+### 5.3 Media Library
+
+Cho phép:
+
+* Import video và audio.
+* Xem metadata bằng ffprobe.
+* Hiển thị thời lượng, độ phân giải, codec, dung lượng.
+* Preview video.
+* Gắn video với một hoặc nhiều sản phẩm.
+* Kiểm tra file bị thiếu hoặc không đọc được.
+* Tạo playlist.
+* Phát tuần tự hoặc lặp lại playlist.
+
+Không tự ý chỉnh sửa hoặc xóa file gốc của người dùng.
+
+### 5.4 AI Script Studio
+
+Cho phép tạo kịch bản giới thiệu sản phẩm theo cấu hình:
+
+* Thời lượng: 15, 30, 60, 90 giây hoặc tùy chỉnh.
+* Phong cách: thân thiện, tư vấn, ngắn gọn, năng động.
+* Đối tượng người xem.
+* Tốc độ nói.
+* Ngôn ngữ.
+* Cách xưng hô.
+* CTA phù hợp.
+* Mức độ lặp lại nội dung.
+
+Kịch bản phải có cấu trúc:
+
+1. Câu mở đầu.
+2. Nêu tên sản phẩm.
+3. Giới thiệu các đặc điểm đã xác minh.
+4. Lợi ích diễn đạt thận trọng, không phóng đại.
+5. Hướng dẫn hoặc lưu ý cần thiết.
+6. CTA.
+
+Cho phép người dùng chỉnh sửa, lưu phiên bản và tạo lại kịch bản.
+
+### 5.5 AI Voice Studio
+
+Cho phép:
+
+* Chọn TTS provider.
+* Chọn giọng đọc có sẵn từ provider.
+* Điều chỉnh tốc độ và âm lượng nếu provider hỗ trợ.
+* Preview audio.
+* Tạo audio từ kịch bản.
+* Lưu audio vào thư viện.
+* Cache theo nội dung và cấu hình giọng đọc.
+* Không tạo lại audio nếu nội dung không thay đổi và cache còn hợp lệ.
+
+Nếu TTS provider lỗi, hiển thị lỗi rõ ràng và cho phép thử lại.
+
+### 5.6 Live Studio
+
+Hiển thị:
+
+* Preview từ OBS nếu khả thi.
+* Trạng thái OBS.
+* Scene đang hoạt động.
+* Nguồn media.
+* Sản phẩm hiện tại.
+* Video hiện tại.
+* Kịch bản hiện tại.
+* Tình trạng TTS.
+* Hàng đợi sản phẩm tiếp theo.
+* Nút bắt đầu/tạm dừng/tiếp tục/dừng điều phối nội dung.
+
+Ứng dụng không được tự ý kết thúc OBS hoặc kill tiến trình OBS khi người dùng đóng ứng dụng.
+
+### 5.7 Product Presentation Scheduler
+
+Cho phép cấu hình:
+
+* Danh sách sản phẩm.
+* Thứ tự giới thiệu.
+* Thời lượng mỗi sản phẩm.
+* Video tương ứng.
+* Audio TTS tương ứng.
+* Khoảng nghỉ giữa các lần giới thiệu.
+* Số lần lặp.
+* Lịch bắt đầu và kết thúc.
+* Chế độ phát tuần tự hoặc lặp playlist.
+
+Scheduler phải có:
+
+* Pause/resume.
+* Stop an toàn.
+* Trạng thái hiện tại.
+* Xử lý khi một video/audio bị lỗi.
+* Không phát đồng thời nhiều TTS nếu chưa được cấu hình.
+* Không tạo vòng lặp task vô hạn khi có lỗi.
+
+### 5.8 AI Comment Assistant
+
+Nếu có nguồn bình luận được tích hợp hợp lệ:
+
+* Nhận bình luận.
+* Phân loại: hỏi giá, hỏi tính năng, hỏi vận chuyển, hỏi biến thể, spam, nội dung không phù hợp, câu hỏi khác.
+* Tìm câu trả lời dựa trên dữ liệu sản phẩm.
+* Đề xuất câu trả lời ngắn, tự nhiên, đúng ngữ cảnh.
+* Cho phép người vận hành duyệt trước khi gửi.
+* Có thể bật auto-reply riêng cho nhóm câu hỏi rủi ro thấp nếu nền tảng và quyền tích hợp cho phép.
+
+Mặc định:
+
+* Auto-reply tắt.
+* Người dùng phải bật rõ ràng.
+* Có giới hạn tốc độ gửi.
+* Có log nội dung và trạng thái gửi.
+* Không trả lời khi thiếu dữ liệu xác minh.
+* Không đưa ra cam kết về sức khỏe, tài chính, hiệu quả sản phẩm hoặc chính sách không có nguồn.
+* Không gửi câu trả lời nếu chưa xác nhận được quyền gửi qua integration.
+
+Nếu không có API hợp lệ, triển khai chế độ **Comment Assistant thủ công**: người dùng nhập/dán bình luận, AI đề xuất câu trả lời để người dùng tự gửi trên giao diện TikTok.
+
+---
+
+## 6. Tích hợp TikTok — yêu cầu bắt buộc
+
+Thiết kế TikTok integration theo capability-based architecture.
+
+Mỗi tính năng phải có trạng thái:
+
+* Supported: đã xác minh và triển khai bằng phương thức được phép.
+* Unsupported: không có phương thức tích hợp khả dụng.
+* Requires Authorization: cần quyền hoặc thông tin xác thực.
+* Manual Mode: người dùng thao tác thủ công.
+* Demo: dữ liệu giả lập, chỉ dùng kiểm thử.
+
+Không được:
+
+* Bịa API endpoint.
+* Giả lập thành công khi API chưa thực hiện.
+* Thu thập hoặc lưu mật khẩu TikTok.
+* Scrape private API hoặc reverse-engineer giao thức riêng tư.
+* Vượt CAPTCHA, OTP hoặc challenge bảo mật.
+* Tự động né giới hạn hoặc cơ chế chống lạm dụng.
+* Dùng browser automation để giả mạo thao tác người dùng nhằm vượt hạn chế nền tảng.
+
+Nếu cần đăng nhập hoặc xác minh bảo mật, người dùng tự thao tác trên giao diện chính thức.
+
+### Product Pinning
+
+Chỉ triển khai tự động ghim sản phẩm khi:
+
+1. Có API hoặc phương thức tích hợp chính thức/được cho phép.
+2. Có quyền truy cập phù hợp.
+3. Có xác nhận thành công từ nền tảng.
+
+Nếu không đủ điều kiện:
+
+* Hiển thị hướng dẫn ghim sản phẩm thủ công.
+* Cho phép người dùng đánh dấu sản phẩm đã ghim.
+* Không hiển thị trạng thái “đã ghim” nếu chưa được xác nhận.
+
+---
+
+## 7. OBS Integration
+
+Dùng OBS WebSocket để:
+
+* Kiểm tra OBS đang chạy.
+* Kết nối/ngắt kết nối.
+* Đọc danh sách scene.
+* Đọc trạng thái streaming.
+* Chọn scene nếu quyền và API hỗ trợ.
+* Điều khiển media source nếu cấu hình phù hợp.
+* Hiển thị lỗi kết nối.
+* Tự reconnect có giới hạn và backoff.
+
+Không lưu OBS password dạng plaintext.
+
+Không tự tạo cấu hình OBS phá hủy cấu hình hiện có. Trước khi thay đổi scene/source, cần xác nhận hoặc tạo cấu hình riêng.
+
+---
+
+## 8. Bảo mật và quyền riêng tư
+
+* Không hardcode secret trong source code.
+* Không ghi API key, token, password vào log.
+* Dùng Windows Credential Manager hoặc cơ chế lưu trữ bí mật phù hợp.
+* Validate dữ liệu đầu vào.
+* Giới hạn kích thước file import.
+* Kiểm tra đường dẫn file.
+* Xử lý lỗi không làm crash toàn ứng dụng.
+* Có chức năng xóa dữ liệu người dùng.
+* Không gửi dữ liệu sản phẩm hoặc bình luận tới AI provider nếu chưa cấu hình provider và có thông báo rõ ràng.
+
+---
+
+## 9. Tối ưu hiệu năng
+
+Mục tiêu thiết kế:
+
+* UI không bị treo khi phát video, gọi AI hoặc tạo TTS.
+* Video playback do OBS/FFmpeg xử lý.
+* Không load toàn bộ video vào RAM.
+* Dùng streaming/chunking khi phù hợp.
+* Cache metadata và audio.
+* Giới hạn số tác vụ AI đồng thời.
+* Có hàng đợi tác vụ.
+* Có timeout và retry có giới hạn.
+* Có log mức độ INFO/WARNING/ERROR.
+* Có chế độ chạy nền System Tray.
+* Có thể thu nhỏ xuống tray.
+* Khi thoát, dừng worker và đóng database an toàn.
+
+Không tuyên bố mức sử dụng RAM/CPU cụ thể nếu chưa đo kiểm trên máy thực tế. Hãy tạo benchmark và ghi kết quả.
+
+---
+
+## 10. Database
+
+Thiết kế schema và migration cho tối thiểu:
+
+* products
+* product_variants
+* media_files
+* product_media
+* scripts
+* script_versions
+* voice_profiles
+* generated_audio
+* playlists
+* playlist_items
+* live_sessions
+* scheduler_jobs
+* comment_events
+* ai_suggestions
+* integration_settings
+* app_settings
+* activity_logs
+
+Dùng foreign key, index phù hợp và migration có version.
+
+Không dùng mock data trong production. Demo data phải nằm trong chế độ demo riêng.
+
+---
+
+## 11. Testing
+
+Viết test cho:
+
+* CRUD sản phẩm.
+* Import/export CSV.
+* Validation dữ liệu sản phẩm.
+* Tạo kịch bản từ dữ liệu sản phẩm.
+* Chặn AI tạo claim không có nguồn.
+* TTS cache.
+* Playlist scheduler.
+* Pause/resume/stop.
+* OBS connection failure.
+* TikTok capability gating.
+* Không báo gửi bình luận thành công khi chưa có xác nhận.
+* Không báo ghim sản phẩm thành công khi chưa có xác nhận.
+* Database migration.
+* Xử lý file media không hợp lệ.
+
+Dùng pytest.
+
+Có lint/type checking phù hợp, ví dụ Ruff và mypy/pyright nếu cấu hình khả thi.
+
+---
+
+## 12. Quy trình triển khai
+
+Không dừng lại ở việc đưa ra kế hoạch. Hãy kiểm tra repository hiện tại và bắt đầu triển khai.
+
+### Phase 0 — Repository Inspection
+
+* Kiểm tra thư mục dự án.
+* Kiểm tra Python và dependency.
+* Kiểm tra Git status.
+* Không ghi đè hoặc xóa file người dùng nếu chưa hiểu mục đích.
+* Tạo implementation plan ngắn.
+
+### Phase 1 — Foundation
+
+* Khởi tạo project.
+* Cấu hình dependency.
+* Tạo cấu trúc module.
+* Tạo logging, settings, database và migration.
+* Tạo cửa sổ PySide6 chính.
+
+### Phase 2 — Product & Media
+
+* CRUD sản phẩm.
+* Import/export CSV.
+* Media library.
+* ffprobe metadata.
+* Gắn video với sản phẩm.
+
+### Phase 3 — AI Script & TTS
+
+* Provider abstraction.
+* Tạo kịch bản theo dữ liệu sản phẩm.
+* Chỉnh sửa/lưu kịch bản.
+* Tạo audio.
+* Cache audio.
+
+### Phase 4 — OBS & Scheduler
+
+* OBS WebSocket integration.
+* Playlist.
+* Scheduler.
+* Trạng thái phiên.
+* Pause/resume/stop.
+* Xử lý lỗi.
+
+### Phase 5 — Comment Assistant
+
+* Xây dựng comment workflow.
+* AI đề xuất câu trả lời có căn cứ.
+* Manual approval.
+* Capability gating cho gửi bình luận.
+
+### Phase 6 — TikTok Integration
+
+* Chỉ triển khai các capability đã xác minh.
+* Nếu thiếu API/quyền, hoàn thiện manual mode.
+* Viết tài liệu nêu rõ tính năng nào hoạt động, tính năng nào cần quyền hoặc chưa khả dụng.
+
+### Phase 7 — Quality & Release
+
+* Chạy tests.
+* Chạy lint/type checks.
+* Build ứng dụng.
+* Kiểm tra startup/shutdown.
+* Kiểm tra tray.
+* Đóng gói Windows.
+* Viết README tiếng Việt.
+* Viết hướng dẫn cài OBS, cấu hình TTS/AI và sử dụng ứng dụng.
+* Ghi rõ các giới hạn tích hợp TikTok.
+
+Sau mỗi phase:
+
+1. Báo cáo file đã tạo/sửa.
+2. Chạy kiểm tra phù hợp.
+3. Sửa lỗi phát sinh.
+4. Không đánh dấu hoàn thành nếu chưa kiểm chứng.
+
+---
+
+## 13. Tiêu chí nghiệm thu
+
+Ứng dụng được xem là hoàn thành khi:
+
+* Chạy được trên Windows 10/11.
+* Có giao diện desktop tiếng Việt.
+* Quản lý được sản phẩm.
+* Import được video.
+* Tạo được kịch bản dựa trên dữ liệu sản phẩm.
+* Tạo và phát được audio TTS.
+* Quản lý được playlist sản phẩm.
+* Kết nối OBS khi OBS WebSocket được cấu hình.
+* Có scheduler với pause/resume/stop.
+* Có comment assistant và chế độ duyệt thủ công.
+* Có capability status rõ ràng cho từng tính năng TikTok.
+* Không báo thành công giả cho thao tác nền tảng.
+* Có logging, xử lý lỗi và lưu cấu hình.
+* Có test cơ bản.
+* Có hướng dẫn chạy và đóng gói.
+
+**Ưu tiên hoàn thiện luồng cốt lõi: Product → Script → TTS → Video/Playlist → OBS.** Không để việc thiếu quyền API TikTok làm đình trệ các chức năng độc lập này.
+
+Bắt đầu bằng việc kiểm tra repository và triển khai Phase 0, sau đó tiếp tục xây dựng các phase theo thứ tự. Nếu gặp giới hạn API hoặc quyền truy cập bên ngoài, hãy ghi rõ giới hạn và tiếp tục hoàn thiện phần có thể triển khai hợp lệ.
