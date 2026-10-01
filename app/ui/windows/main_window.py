@@ -158,6 +158,7 @@ class MainWindow(QMainWindow):
         self._script_page = ScriptPage()
         self._voice_page = VoicePage()
         self._live_page = LiveStudioPage()
+        self._live_page.obs_status_changed.connect(self.update_obs_status)
         self._scheduler_page = SchedulerPage()
         self._comment_page = CommentPage()
         self._settings_page = SettingsPage()

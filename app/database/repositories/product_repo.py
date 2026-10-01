@@ -15,6 +15,9 @@ from app.database.session import get_db
 class ProductRepository:
     """Data access layer for Product and ProductVariant models."""
 
+    def __init__(self, session: Optional[Session] = None) -> None:
+        self.session = session
+
     # --- Product CRUD ---
 
     @staticmethod

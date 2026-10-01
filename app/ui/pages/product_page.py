@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -33,8 +35,84 @@ from PySide6.QtWidgets import (
 
 from loguru import logger
 
+from app.database.repositories.script_repo import ScriptRepository
+from app.database.session import get_session
+from app.integrations.llm.base import BaseLLMProvider
+from app.integrations.llm.factory import get_llm_provider
+from app.services.product_extractor_service import ProductExtractorService
 from app.services.product_service import ProductService
+from app.services.script_service import ScriptService
+from app.services.settings_service import SettingsService
 from app.ui.styles.dark_theme import COLORS
+
+
+class ExtractUrlWorker(QThread):
+    """Worker thread for scraping and AI extracting product specs from URL."""
+
+    finished = Signal(dict, str)
+
+    def __init__(
+        self,
+        extractor: ProductExtractorService,
+        provider: BaseLLMProvider,
+        url: str,
+    ) -> None:
+        super().__init__()
+        self.extractor = extractor
+        self.provider = provider
+        self.url = url
+
+    def run(self) -> None:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            data = loop.run_until_complete(
+                self.extractor.extract_product_from_url(self.url, self.provider)
+            )
+            loop.close()
+            self.finished.emit(data, "")
+        except Exception as e:
+            logger.exception("Lỗi khi trích xuất thông tin sản phẩm từ URL")
+            self.finished.emit({}, str(e))
+
+
+class AutoFillWorker(QThread):
+    """Worker thread for AI to generate product details."""
+
+    finished = Signal(dict, str)
+
+    def __init__(
+        self,
+        script_service: ScriptService,
+        provider: BaseLLMProvider,
+        name: str,
+        category: str,
+        price: float,
+    ) -> None:
+        super().__init__()
+        self.script_service = script_service
+        self.provider = provider
+        self.name = name
+        self.category = category
+        self.price = price
+
+    def run(self) -> None:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            data = loop.run_until_complete(
+                self.script_service.generate_product_details_with_ai(
+                    product_name=self.name,
+                    category=self.category,
+                    price=self.price,
+                    provider=self.provider,
+                )
+            )
+            loop.close()
+            self.finished.emit(data, "")
+        except Exception as e:
+            logger.exception("Lỗi khi AI tự điền chi tiết sản phẩm")
+            self.finished.emit({}, str(e))
 
 
 class ProductFormDialog(QDialog):
@@ -80,9 +158,37 @@ class ProductFormDialog(QDialog):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
 
         # --- Fields ---
+        url_row = QHBoxLayout()
+        self._url_input = QLineEdit()
+        self._url_input.setPlaceholderText("Dán link Shopee, TikTok Shop, Tiki, Lazada, Web... để tự động lấy toàn bộ thông số")
+        url_row.addWidget(self._url_input, 1)
+
+        self._extract_url_btn = QPushButton("⚡ Trích xuất tự động")
+        self._extract_url_btn.setToolTip("Quét link và để AI tự động điền toàn bộ thông số chi tiết của sản phẩm")
+        self._extract_url_btn.setStyleSheet(
+            f"color: {COLORS['accent_secondary']}; border: 1px solid {COLORS['accent_secondary']}; "
+            "padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px;"
+        )
+        self._extract_url_btn.clicked.connect(self._on_extract_from_url)
+        url_row.addWidget(self._extract_url_btn)
+
+        form.addRow("🔗 Link sản phẩm:", url_row)
+
+        name_row = QHBoxLayout()
         self._name_input = QLineEdit()
         self._name_input.setPlaceholderText("Tên sản phẩm (bắt buộc)")
-        form.addRow("Tên sản phẩm *:", self._name_input)
+        name_row.addWidget(self._name_input, 1)
+
+        self._ai_fill_btn = QPushButton("✨ AI Tự Điền")
+        self._ai_fill_btn.setToolTip("Nhập tên sản phẩm rồi bấm vào đây để AI tự động điền mô tả, tính năng USP, đối tượng...")
+        self._ai_fill_btn.setStyleSheet(
+            f"color: {COLORS['accent_secondary']}; border: 1px solid {COLORS['accent_secondary']}; "
+            "padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 12px;"
+        )
+        self._ai_fill_btn.clicked.connect(self._on_ai_autofill)
+        name_row.addWidget(self._ai_fill_btn)
+
+        form.addRow("Tên sản phẩm *:", name_row)
 
         self._sku_input = QLineEdit()
         self._sku_input.setPlaceholderText("Mã SKU / mã sản phẩm")
@@ -144,10 +250,6 @@ class ProductFormDialog(QDialog):
         self._warnings_input.setPlaceholderText("Lưu ý / cảnh báo")
         form.addRow("Lưu ý:", self._warnings_input)
 
-        self._url_input = QLineEdit()
-        self._url_input.setPlaceholderText("https://...")
-        form.addRow("URL sản phẩm:", self._url_input)
-
         self._active_checkbox = QCheckBox("Sản phẩm đang hoạt động")
         self._active_checkbox.setChecked(True)
         form.addRow("Trạng thái:", self._active_checkbox)
@@ -189,6 +291,132 @@ class ProductFormDialog(QDialog):
         self._warnings_input.setText(d.get("warnings", "") or "")
         self._url_input.setText(d.get("product_url", "") or "")
         self._active_checkbox.setChecked(d.get("is_active", True))
+
+    def _on_ai_autofill(self) -> None:
+        name = self._name_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng nhập tên sản phẩm trước khi yêu cầu AI tự điền!")
+            self._name_input.setFocus()
+            return
+
+        session = get_session()
+        settings_service = SettingsService(session)
+        try:
+            provider = get_llm_provider(settings_service)
+        except Exception as e:
+            QMessageBox.warning(self, "Lỗi AI", str(e))
+            return
+
+        self._ai_fill_btn.setEnabled(False)
+        self._ai_fill_btn.setText("⏳ Đang điền...")
+
+        script_service = ScriptService(ScriptRepository(session))
+        self._fill_worker = AutoFillWorker(
+            script_service=script_service,
+            provider=provider,
+            name=name,
+            category=self._category_combo.currentText().strip(),
+            price=self._price_input.value(),
+        )
+        self._fill_worker.finished.connect(self._on_autofill_finished)
+        self._fill_worker.start()
+
+    def _on_autofill_finished(self, data: dict, error: str) -> None:
+        self._ai_fill_btn.setEnabled(True)
+        self._ai_fill_btn.setText("✨ AI Tự Điền")
+
+        if error or not data:
+            QMessageBox.warning(self, "Thông báo", f"Lỗi khi AI tự điền chi tiết sản phẩm: {error}")
+            return
+
+        if data.get("category") and not self._category_combo.currentText().strip():
+            self._category_combo.setCurrentText(data["category"])
+        if data.get("description"):
+            self._description_input.setPlainText(data["description"])
+        if data.get("verified_features"):
+            self._features_input.setPlainText(data["verified_features"])
+        if data.get("ingredients"):
+            self._ingredients_input.setText(data["ingredients"])
+        if data.get("target_audience"):
+            self._audience_input.setText(data["target_audience"])
+        if data.get("usage_instructions"):
+            self._usage_input.setPlainText(data["usage_instructions"])
+        if data.get("warnings"):
+            self._warnings_input.setText(data["warnings"])
+
+        QMessageBox.information(
+            self,
+            "Thành công",
+            "✨ AI đã tự động điền đầy đủ chi tiết sản phẩm!\nBạn có thể tự do chỉnh sửa lại các thông tin trước khi lưu."
+        )
+
+    def _on_extract_from_url(self) -> None:
+        url = self._url_input.text().strip()
+        if not url:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng dán liên kết sản phẩm trước!")
+            self._url_input.setFocus()
+            return
+
+        session = get_session()
+        settings_service = SettingsService(session)
+        try:
+            provider = get_llm_provider(settings_service)
+        except Exception as e:
+            QMessageBox.warning(self, "Lỗi AI", str(e))
+            return
+
+        self._extract_url_btn.setEnabled(False)
+        self._extract_url_btn.setText("⏳ Đang trích xuất...")
+
+        extractor = ProductExtractorService()
+        self._url_worker = ExtractUrlWorker(
+            extractor=extractor,
+            provider=provider,
+            url=url,
+        )
+        self._url_worker.finished.connect(self._on_url_extracted_finished)
+        self._url_worker.start()
+
+    def _on_url_extracted_finished(self, data: dict, error: str) -> None:
+        self._extract_url_btn.setEnabled(True)
+        self._extract_url_btn.setText("⚡ Trích xuất tự động")
+
+        if error or not data or not data.get("name"):
+            QMessageBox.warning(self, "Lỗi Trích Xuất Link", f"Không thể lấy thông tin từ link: {error}")
+            return
+
+        if data.get("name"):
+            self._name_input.setText(data["name"])
+        if data.get("sku"):
+            self._sku_input.setText(data["sku"])
+        if data.get("category"):
+            self._category_combo.setCurrentText(data["category"])
+        if data.get("price") is not None:
+            self._price_input.setValue(data["price"])
+        if data.get("promo_price") is not None:
+            self._promo_price_input.setValue(data["promo_price"])
+        if data.get("description"):
+            self._description_input.setPlainText(data["description"])
+        if data.get("verified_features"):
+            self._features_input.setPlainText(data["verified_features"])
+        if data.get("ingredients"):
+            self._ingredients_input.setText(data["ingredients"])
+        if data.get("sizes"):
+            self._sizes_input.setText(data["sizes"])
+        if data.get("target_audience"):
+            self._audience_input.setText(data["target_audience"])
+        if data.get("usage_instructions"):
+            self._usage_input.setPlainText(data["usage_instructions"])
+        if data.get("warnings"):
+            self._warnings_input.setText(data["warnings"])
+
+        QMessageBox.information(
+            self,
+            "Trích Xuất Thành Công",
+            f"🎉 Đã lấy xong toàn bộ thông số từ liên kết!\n"
+            f"Tên: {data.get('name')}\n"
+            "Bạn có thể tùy chỉnh hoặc bấm 'Lưu sản phẩm'."
+        )
 
     def _on_save(self) -> None:
         name = self._name_input.text().strip()
@@ -277,6 +505,12 @@ class ProductPage(QWidget):
         export_btn = QPushButton("📤 Export CSV")
         export_btn.clicked.connect(self._on_export_csv)
         toolbar.addWidget(export_btn)
+
+        add_link_btn = QPushButton("🔗 Thêm từ Link")
+        add_link_btn.setObjectName("accentButton")
+        add_link_btn.setToolTip("Nhập link Shopee, TikTok Shop, Tiki, Web... để AI tự động lấy toàn bộ thông số")
+        add_link_btn.clicked.connect(self._on_add_product_from_link)
+        toolbar.addWidget(add_link_btn)
 
         add_btn = QPushButton("➕ Thêm sản phẩm")
         add_btn.setObjectName("primaryButton")
@@ -433,6 +667,24 @@ class ProductPage(QWidget):
         dialog = ProductFormDialog(self, categories=categories)
         dialog.saved.connect(self._save_new_product)
         dialog.exec()
+
+    def _on_add_product_from_link(self) -> None:
+        url, ok = QInputDialog.getText(
+            self,
+            "Thêm Sản Phẩm Từ Link",
+            "Dán đường link sản phẩm (TikTok Shop, Shopee, Lazada, Tiki, Website...):",
+        )
+        if ok and url.strip():
+            categories = self._service.get_categories()
+            dialog = ProductFormDialog(
+                self,
+                product_data={"product_url": url.strip()},
+                categories=categories,
+            )
+            dialog.saved.connect(self._save_new_product)
+            dialog._url_input.setText(url.strip())
+            dialog.show()
+            dialog._on_extract_from_url()
 
     def _save_new_product(self, data: dict) -> None:
         try:

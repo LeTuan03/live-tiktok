@@ -14,8 +14,10 @@ COLORS = {
     "bg_lighter": "#262940",
     "bg_hover": "#2d3050",
     "bg_active": "#353860",
+    "bg_card": "#161823",
 
     # Accent colors
+    "accent": "#6c5ce7",
     "accent_primary": "#6c5ce7",
     "accent_primary_hover": "#7e70f0",
     "accent_primary_dark": "#5a4bd6",

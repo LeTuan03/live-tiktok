@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import List, Optional
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -23,18 +23,36 @@ from PySide6.QtWidgets import (
 )
 
 from loguru import logger
+from app.database.session import get_session
 from app.integrations.obs.client import OBSClient
+from app.services.settings_service import SettingsService
+from app.ui.pages.settings_page import TestOBSWorker
 from app.ui.styles.dark_theme import COLORS
 
 
 class LiveStudioPage(QWidget):
     """Live Studio UI Page."""
 
+    obs_status_changed = Signal(bool)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.obs_client = OBSClient()
         self.is_streaming: bool = False
         self.stream_seconds: int = 0
+        self._test_worker: Optional[TestOBSWorker] = None
+
+        # Load persisted settings if available
+        try:
+            session = get_session()
+            settings_service = SettingsService(session)
+            self._default_host = settings_service.get_setting("obs_host", "localhost")
+            self._default_port = settings_service.get_setting("obs_port", "4455")
+            self._default_pass = settings_service.get_setting("obs_password", "")
+        except Exception:
+            self._default_host = "localhost"
+            self._default_port = "4455"
+            self._default_pass = ""
 
         self._init_ui()
 
@@ -79,23 +97,30 @@ class LiveStudioPage(QWidget):
         form = QFormLayout()
         form.setSpacing(10)
 
-        self.host_input = QLineEdit("localhost")
+        self.host_input = QLineEdit(self._default_host)
         form.addRow("Host:", self.host_input)
 
-        self.port_input = QLineEdit("4455")
+        self.port_input = QLineEdit(str(self._default_port))
         form.addRow("Port:", self.port_input)
 
-        self.pass_input = QLineEdit()
+        self.pass_input = QLineEdit(self._default_pass)
         self.pass_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.pass_input.setPlaceholderText("Password (nếu có)")
         form.addRow("Password:", self.pass_input)
 
         left_layout.addLayout(form)
 
-        self.connect_btn = QPushButton("🔌 Kết nối OBS WebSocket")
+        btn_box = QHBoxLayout()
+        self.connect_btn = QPushButton("🔌 Kết nối OBS")
         self.connect_btn.setObjectName("primaryButton")
         self.connect_btn.clicked.connect(self._toggle_obs_connection)
-        left_layout.addWidget(self.connect_btn)
+        btn_box.addWidget(self.connect_btn)
+
+        self.test_obs_btn = QPushButton("🧪 Kiểm tra")
+        self.test_obs_btn.clicked.connect(self._test_obs_connection)
+        btn_box.addWidget(self.test_obs_btn)
+
+        left_layout.addLayout(btn_box)
 
         left_layout.addSpacing(16)
 
@@ -186,14 +211,45 @@ class LiveStudioPage(QWidget):
                 self.connect_btn.setStyleSheet(f"background-color: {COLORS['status_offline']};")
                 self._load_scenes()
                 self._add_log("✅ Đã kết nối thành công tới OBS Studio WebSocket.")
+                self.obs_status_changed.emit(True)
             else:
                 self._add_log("⚠️ Không thể kết nối OBS Studio. Sử dụng chế độ Simulation mode.")
                 self._load_scenes()
+                self.obs_status_changed.emit(False)
         else:
             self.obs_client.disconnect()
-            self.connect_btn.setText("🔌 Kết nối OBS WebSocket")
+            self.connect_btn.setText("🔌 Kết nối OBS")
             self.connect_btn.setStyleSheet("")
             self._add_log("ℹ️ Đã ngắt kết nối OBS Studio.")
+            self.obs_status_changed.emit(False)
+
+    def _test_obs_connection(self) -> None:
+        host = self.host_input.text().strip() or "localhost"
+        try:
+            port = int(self.port_input.text().strip() or "4455")
+            if not (1 <= port <= 65535):
+                raise ValueError()
+        except ValueError:
+            QMessageBox.warning(self, "Port Không Hợp Lệ", "Cổng kết nối (Port) phải là một số nguyên từ 1 đến 65535.")
+            return
+        password = self.pass_input.text().strip()
+
+        self._add_log(f"⏳ Đang kiểm tra kết nối tới OBS Studio ({host}:{port})...")
+        self.test_obs_btn.setEnabled(False)
+
+        self._test_worker = TestOBSWorker(host=host, port=port, password=password)
+        self._test_worker.finished.connect(self._on_test_obs_finished)
+        self._test_worker.start()
+
+    def _on_test_obs_finished(self, success: bool, message: str) -> None:
+        self.test_obs_btn.setEnabled(True)
+        if success:
+            first_line = message.splitlines()[0]
+            self._add_log(f"✅ {first_line}")
+            QMessageBox.information(self, "Kết Nối OBS Thành Công", message)
+        else:
+            self._add_log("❌ Kiểm tra kết nối OBS thất bại.")
+            QMessageBox.critical(self, "Lỗi Kết Nối OBS", message)
 
     def _load_scenes(self) -> None:
         self.scene_combo.clear()

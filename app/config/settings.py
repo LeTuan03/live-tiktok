@@ -67,8 +67,10 @@ class AppSettings(BaseSettings):
     obs_password_key: str = "liveflow_obs_password"
 
     # --- AI / LLM ---
-    llm_provider: str = "openai"
-    llm_model: str = "gpt-4o-mini"
+    llm_provider: str = "gemini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash"
+    llm_model: str = "gemini-3.5-flash"
     llm_api_key_name: str = "liveflow_llm_api_key"
     llm_max_concurrent: int = 3
     llm_timeout: int = 60

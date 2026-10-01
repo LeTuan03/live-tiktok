@@ -18,17 +18,18 @@ class SettingsService:
 
     def get_setting(self, key: str, default: str = "") -> str:
         setting = self.session.scalars(
-            select(AppSetting).where(AppSetting.key == key)
+            select(AppSetting).where(AppSetting.setting_key == key)
         ).first()
-        return setting.value if setting else default
+        return setting.setting_value if setting and setting.setting_value is not None else default
 
     def set_setting(self, key: str, value: str, is_secret: bool = False) -> None:
         setting = self.session.scalars(
-            select(AppSetting).where(AppSetting.key == key)
+            select(AppSetting).where(AppSetting.setting_key == key)
         ).first()
         if setting:
-            setting.value = value
+            setting.setting_value = value
         else:
-            setting = AppSetting(key=key, value=value, is_secret=is_secret)
+            setting = AppSetting(setting_key=key, setting_value=value)
             self.session.add(setting)
         self.session.commit()
+

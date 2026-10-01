@@ -47,9 +47,14 @@ EXPORT_FIELDS = [
 class ProductService:
     """Business logic layer for product operations."""
 
-    def __init__(self) -> None:
-        self._repo = ProductRepository()
+    def __init__(self, repo: Optional[ProductRepository] = None) -> None:
+        self._repo = repo or ProductRepository()
         self._variant_repo = ProductVariantRepository()
+
+    def list_products(self, is_active: Optional[bool] = None) -> list:
+        """Get all products as a list."""
+        products, _ = self._repo.get_all(is_active=is_active, limit=10000)
+        return products
 
     def create_product(self, data: dict) -> Any:
         """Create a new product and emit event."""
