@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -31,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from loguru import logger
 from app.database.models.product import Product
-from app.database.models.script import Script, ScriptVersion
+from app.database.models.script import Script
 from app.database.repositories.product_repo import ProductRepository
 from app.database.repositories.script_repo import ScriptRepository
 from app.database.repositories.voice_repo import VoiceRepository
@@ -773,6 +772,10 @@ class ScriptPage(QWidget):
 
     def refresh_products(self) -> None:
         """Reload products list from database."""
+        try:
+            self.script_repo.session.expire_all()
+        except Exception:  # noqa: BLE001
+            pass
         self.product_combo.blockSignals(True)
         self.product_combo.clear()
         self.products = list(self.product_service.list_products())
@@ -781,8 +784,12 @@ class ScriptPage(QWidget):
             for p in self.products:
                 price_str = f"{p.price:,.0f}đ" if p.price else "Chưa có giá"
                 self.product_combo.addItem(f"{p.name} ({price_str})", p.id)
-            if not self.current_product:
-                self.current_product = self.products[0]
+            current_id = self.current_product.id if self.current_product else None
+            match = next((p for p in self.products if p.id == current_id), None)
+            self.current_product = match or self.products[0]
+            idx = self.product_combo.findData(self.current_product.id)
+            if idx >= 0:
+                self.product_combo.setCurrentIndex(idx)
             self._update_prod_quick_info(self.current_product)
             self._load_product_scripts(self.current_product.id)
         else:
@@ -1189,5 +1196,9 @@ class ScriptPage(QWidget):
             QMessageBox.warning(self, "Lỗi TTS", f"Không thể tạo âm thanh: {error}")
         else:
             path = getattr(audio, "file_path", "")
-            self.audio_status_label.setText(f"✅ Đã tạo file audio: {path}")
-            QMessageBox.information(self, "Thành công", f"Đã tạo audio TTS thành công tại:\n{path}")
+            dur = getattr(audio, "duration_seconds", None)
+            self.audio_status_label.setText(f"✅ Audio sẵn sàng ({dur:.0f}s): {path}" if dur else f"✅ Audio sẵn sàng: {path}")
+            from app.services.activity_log_service import log_activity
+
+            log_activity("tts", "Tạo audio TTS cho kịch bản", self.script_title_edit.text()[:100])
+            QMessageBox.information(self, "Thành công", f"Đã tạo audio TTS. Sản phẩm này đã sẵn sàng để đưa vào playlist.\n\n{path}")

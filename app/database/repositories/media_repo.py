@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import or_, func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 
 from app.database.models.media import MediaFile, ProductMedia
 from app.database.session import get_db

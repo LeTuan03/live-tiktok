@@ -15,6 +15,13 @@ class ScriptRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def _commit(self) -> None:
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+
     def create(
         self,
         product_id: int,
@@ -61,7 +68,7 @@ class ScriptRepository:
             change_note="Phiên bản khởi tạo",
         )
         self.session.add(version)
-        self.session.commit()
+        self._commit()
         self.session.refresh(script)
         return script
 
@@ -88,14 +95,25 @@ class ScriptRepository:
             change_note=change_note or f"Cập nhật phiên bản {script.version}",
         )
         self.session.add(version)
-        self.session.commit()
+        self._commit()
         self.session.refresh(script)
         return script
 
     def get_by_id(self, script_id: int) -> Optional[Script]:
         return self.session.get(Script, script_id)
 
+    def list_all(self) -> Sequence[Script]:
+        self.session.expire_all()
+        return self.session.scalars(
+            select(Script).order_by(desc(Script.updated_at))
+        ).all()
+
+    def count(self) -> int:
+        from sqlalchemy import func
+        return int(self.session.scalar(select(func.count(Script.id))) or 0)
+
     def get_by_product(self, product_id: int) -> Sequence[Script]:
+        self.session.expire_all()
         return self.session.scalars(
             select(Script)
             .where(Script.product_id == product_id)
@@ -119,5 +137,5 @@ class ScriptRepository:
         if not script:
             return False
         self.session.delete(script)
-        self.session.commit()
+        self._commit()
         return True

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -24,8 +22,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -43,6 +39,7 @@ from app.services.product_extractor_service import ProductExtractorService
 from app.services.product_service import ProductService
 from app.services.script_service import ScriptService
 from app.services.settings_service import SettingsService
+from app.ui.dialogs.link_media_dialog import LinkProductToMediaDialog
 from app.ui.styles.dark_theme import COLORS
 
 
@@ -250,6 +247,17 @@ class ProductFormDialog(QDialog):
         self._warnings_input.setPlaceholderText("Lưu ý / cảnh báo")
         form.addRow("Lưu ý:", self._warnings_input)
 
+        image_row = QHBoxLayout()
+        self._image_input = QLineEdit()
+        self._image_input.setPlaceholderText("Ảnh sản phẩm / banner (jpg, png) — hiển thị trong OBS khi chưa có video")
+        image_row.addWidget(self._image_input, 1)
+        browse_img = QPushButton("📂")
+        browse_img.setFixedWidth(40)
+        browse_img.setToolTip("Chọn file ảnh")
+        browse_img.clicked.connect(self._browse_image)
+        image_row.addWidget(browse_img)
+        form.addRow("Ảnh sản phẩm:", image_row)
+
         self._active_checkbox = QCheckBox("Sản phẩm đang hoạt động")
         self._active_checkbox.setChecked(True)
         form.addRow("Trạng thái:", self._active_checkbox)
@@ -290,7 +298,13 @@ class ProductFormDialog(QDialog):
         self._usage_input.setPlainText(d.get("usage_instructions", "") or "")
         self._warnings_input.setText(d.get("warnings", "") or "")
         self._url_input.setText(d.get("product_url", "") or "")
+        self._image_input.setText(d.get("image_path", "") or "")
         self._active_checkbox.setChecked(d.get("is_active", True))
+
+    def _browse_image(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Chọn ảnh sản phẩm", "", "Ảnh (*.jpg *.jpeg *.png *.webp *.bmp);;Tất cả (*)")
+        if path:
+            self._image_input.setText(path)
 
     def _on_ai_autofill(self) -> None:
         name = self._name_input.text().strip()
@@ -347,7 +361,9 @@ class ProductFormDialog(QDialog):
         QMessageBox.information(
             self,
             "Thành công",
-            "✨ AI đã tự động điền đầy đủ chi tiết sản phẩm!\nBạn có thể tự do chỉnh sửa lại các thông tin trước khi lưu."
+            "✨ AI đã điền BẢN NHÁP chi tiết sản phẩm dựa trên tên sản phẩm.\n\n"
+            "⚠️ Đây là gợi ý chưa được xác minh — hãy đối chiếu với thông tin thật của sản phẩm "
+            "(bao bì, nhà cung cấp) và sửa lại trước khi lưu. Kịch bản AI chỉ dùng dữ liệu bạn đã lưu ở đây."
         )
 
     def _on_extract_from_url(self) -> None:
@@ -439,6 +455,7 @@ class ProductFormDialog(QDialog):
             "usage_instructions": self._usage_input.toPlainText().strip() or None,
             "warnings": self._warnings_input.text().strip() or None,
             "product_url": self._url_input.text().strip() or None,
+            "image_path": self._image_input.text().strip() or None,
             "is_active": self._active_checkbox.isChecked(),
         }
 
@@ -476,6 +493,12 @@ class ProductPage(QWidget):
         self._count_label.setObjectName("subHeaderLabel")
         header_row.addWidget(self._count_label)
         layout.addLayout(header_row)
+
+        intro = QLabel("Mỗi sản phẩm cần: thông tin đã xác minh (giá, tính năng) → video hoặc ảnh (nút 🎬) → kịch bản + audio (Script Studio). "
+                       "AI chỉ dùng dữ liệu bạn lưu ở đây để viết kịch bản và trả lời khách.")
+        intro.setObjectName("hintLabel")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
 
         # --- Toolbar ---
         toolbar = QHBoxLayout()
@@ -533,7 +556,7 @@ class ProductPage(QWidget):
         self._table.setColumnWidth(4, 110)
         self._table.setColumnWidth(5, 110)
         self._table.setColumnWidth(6, 90)
-        self._table.setColumnWidth(7, 200)
+        self._table.setColumnWidth(7, 170)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setAlternatingRowColors(True)
@@ -621,6 +644,12 @@ class ProductPage(QWidget):
             edit_btn.setToolTip("Sửa sản phẩm")
             edit_btn.clicked.connect(lambda _, pid=product.id: self._edit_product(pid))
             action_layout.addWidget(edit_btn)
+
+            media_btn = QPushButton("🎬")
+            media_btn.setFixedSize(32, 28)
+            media_btn.setToolTip("Gắn video/audio cho sản phẩm (dùng khi LIVE)")
+            media_btn.clicked.connect(lambda _, pid=product.id, pname=product.name: self._link_media(pid, pname))
+            action_layout.addWidget(media_btn)
 
             toggle_btn = QPushButton("⏸️" if product.is_active else "▶️")
             toggle_btn.setFixedSize(32, 28)
@@ -722,6 +751,7 @@ class ProductPage(QWidget):
             "usage_instructions": product.usage_instructions,
             "warnings": product.warnings,
             "product_url": product.product_url,
+            "image_path": product.image_path,
             "is_active": product.is_active,
         }
         categories = self._service.get_categories()
@@ -739,6 +769,12 @@ class ProductPage(QWidget):
             self.refresh_data()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", f"Không thể cập nhật sản phẩm:\n{e}")
+
+    def _link_media(self, product_id: int, product_name: str) -> None:
+        dlg = LinkProductToMediaDialog(product_id, product_name, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._status_label.setText(f"✅ Đã cập nhật video cho '{product_name}'")
+            self.refresh_data()
 
     def _toggle_product(self, product_id: int) -> None:
         new_state = self._service.toggle_active(product_id)

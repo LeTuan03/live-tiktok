@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.models.base import Base, IDMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.database.models.script import Script
 
 
 class VoiceProfile(Base, IDMixin, TimestampMixin):
@@ -56,6 +59,7 @@ class GeneratedAudio(Base, IDMixin, TimestampMixin):
         String(64), nullable=False
     )  # SHA-256 of script content + voice config
     is_cached: Mapped[bool] = mapped_column(Boolean, default=True)
+    voice_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     # Relationships
     script: Mapped["Script"] = relationship("Script", back_populates="audio_files")

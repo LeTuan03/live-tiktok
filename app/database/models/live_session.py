@@ -31,6 +31,7 @@ class LiveSession(Base, IDMixin, TimestampMixin):
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     obs_scene: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    platform: Mapped[str] = mapped_column(String(20), default="tiktok")  # tiktok | shopee
 
     # Relationships
     playlist: Mapped[Optional["Playlist"]] = relationship("Playlist")

@@ -10,7 +10,7 @@ from enum import Enum, auto
 from typing import Any, Callable
 
 from loguru import logger
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Signal
 
 
 class TaskStatus(Enum):

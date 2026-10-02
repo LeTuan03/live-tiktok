@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.models.base import Base, IDMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.database.models.product import Product
+    from app.database.models.voice import GeneratedAudio
 
 
 class Script(Base, IDMixin, TimestampMixin):

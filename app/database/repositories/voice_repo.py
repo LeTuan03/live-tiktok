@@ -15,6 +15,13 @@ class VoiceRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    def _commit(self) -> None:
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+
     # --- Voice Profiles ---
 
     def create_profile(
@@ -44,7 +51,7 @@ class VoiceRepository:
             extra_config=extra_config,
         )
         self.session.add(profile)
-        self.session.commit()
+        self._commit()
         self.session.refresh(profile)
         return profile
 
@@ -64,7 +71,7 @@ class VoiceRepository:
             if hasattr(profile, key):
                 setattr(profile, key, value)
 
-        self.session.commit()
+        self._commit()
         self.session.refresh(profile)
         return profile
 
@@ -76,7 +83,7 @@ class VoiceRepository:
             select(VoiceProfile).order_by(desc(VoiceProfile.is_default), VoiceProfile.name)
         ).all()
 
-    def get_default_profile() -> Optional[VoiceProfile]:
+    def get_default_profile(self) -> Optional[VoiceProfile]:
         return self.session.scalars(
             select(VoiceProfile).where(VoiceProfile.is_default == True)
         ).first()
@@ -86,7 +93,7 @@ class VoiceRepository:
         if not profile:
             return False
         self.session.delete(profile)
-        self.session.commit()
+        self._commit()
         return True
 
     def _unset_default_profiles(self) -> None:
@@ -106,6 +113,7 @@ class VoiceRepository:
         voice_profile_id: Optional[int] = None,
         duration_seconds: Optional[float] = None,
         file_size_bytes: Optional[int] = None,
+        voice_id: Optional[str] = None,
     ) -> GeneratedAudio:
         audio = GeneratedAudio(
             script_id=script_id,
@@ -115,11 +123,15 @@ class VoiceRepository:
             file_size_bytes=file_size_bytes,
             content_hash=content_hash,
             is_cached=True,
+            voice_id=voice_id,
         )
         self.session.add(audio)
-        self.session.commit()
+        self._commit()
         self.session.refresh(audio)
         return audio
+
+    def get_audio_by_id(self, audio_id: int) -> Optional[GeneratedAudio]:
+        return self.session.get(GeneratedAudio, audio_id)
 
     def get_cached_audio(self, content_hash: str) -> Optional[GeneratedAudio]:
         return self.session.scalars(

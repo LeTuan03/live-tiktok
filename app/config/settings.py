@@ -1,4 +1,15 @@
-"""Application configuration using Pydantic Settings."""
+"""Application configuration using Pydantic Settings.
+
+Configuration precedence (highest first):
+    1. Environment variables prefixed with ``LIVEFLOW_``
+    2. ``.env`` file in the project root (next to ``pyproject.toml``)
+    3. ``.env`` file in the user data directory (%LOCALAPPDATA%/LiveFlowAIStudio)
+    4. Defaults defined below
+
+Runtime-editable settings (API keys, OBS host, ...) are stored in the SQLite
+database / Windows Credential Manager via ``SettingsService`` and take
+precedence over the values here when present.
+"""
 
 from __future__ import annotations
 
@@ -10,12 +21,25 @@ from typing import Literal
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+APP_NAME = "LiveFlow AI Studio"
+APP_VERSION = "1.0.0"
+
+
+def get_project_root() -> Path:
+    """Return the project root (source checkout) or the frozen executable directory."""
+    if getattr(sys, "frozen", False):  # PyInstaller bundle
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
 
 def get_app_data_dir() -> Path:
-    """Get the application data directory on Windows."""
+    """Get the per-user application data directory on Windows (or ~/.local/share elsewhere)."""
     app_data = os.environ.get("LOCALAPPDATA", "")
     if not app_data:
-        app_data = str(Path.home() / "AppData" / "Local")
+        if sys.platform == "win32":
+            app_data = str(Path.home() / "AppData" / "Local")
+        else:
+            app_data = str(Path.home() / ".local" / "share")
     return Path(app_data) / "LiveFlowAIStudio"
 
 
@@ -26,19 +50,28 @@ def get_default_data_dir() -> Path:
     return data_dir
 
 
+def _env_files() -> tuple[str, ...]:
+    """Candidate .env files. Later entries override earlier ones in pydantic-settings."""
+    candidates = [
+        get_app_data_dir() / ".env",
+        get_project_root() / ".env",
+    ]
+    return tuple(str(p) for p in candidates)
+
+
 class AppSettings(BaseSettings):
     """Main application settings, loaded from .env or environment variables."""
 
     model_config = SettingsConfigDict(
         env_prefix="LIVEFLOW_",
-        env_file=".env",
+        env_file=_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     # --- Application ---
-    app_name: str = "LiveFlow AI Studio"
-    app_version: str = "0.1.0"
+    app_name: str = APP_NAME
+    app_version: str = APP_VERSION
     debug: bool = False
     language: str = "vi"
     data_dir: Path = Field(default_factory=get_default_data_dir)
@@ -64,14 +97,24 @@ class AppSettings(BaseSettings):
     # --- OBS ---
     obs_host: str = "localhost"
     obs_port: int = 4455
-    obs_password_key: str = "liveflow_obs_password"
+    obs_password_key: str = "obs_password"
+    # Names of the OBS scene/inputs that LiveFlow is allowed to control.
+    # They are created by the app (with user confirmation) and never touch other scenes.
+    obs_scene_name: str = "LiveFlow AI"
+    obs_video_source: str = "LiveFlow Video"
+    obs_audio_source: str = "LiveFlow Audio"
+    obs_image_source: str = "LiveFlow Image"
+    obs_text_source: str = "LiveFlow Text"
+    obs_reconnect_max_attempts: int = 5
 
     # --- AI / LLM ---
     llm_provider: str = "gemini"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash"
     llm_model: str = "gemini-3.5-flash"
-    llm_api_key_name: str = "liveflow_llm_api_key"
+    openai_api_key: str = ""
+    openai_base_url: str = ""
+    openai_model: str = "gpt-4o-mini"
     llm_max_concurrent: int = 3
     llm_timeout: int = 60
 
@@ -86,9 +129,16 @@ class AppSettings(BaseSettings):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    @property
+    def effective_audio_dir(self) -> Path:
+        """Directory holding generated TTS audio files for scripts."""
+        d = self.data_dir / "audio"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     # --- Media ---
     media_dir: Path | None = None
-    max_import_size_mb: int = 2048
+    max_import_size_mb: int = 4096
     ffmpeg_path: str = "ffmpeg"
     ffprobe_path: str = "ffprobe"
 
@@ -98,12 +148,14 @@ class AppSettings(BaseSettings):
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    # --- TikTok ---
+    # --- Platform (TikTok / Shopee) ---
     tiktok_integration_mode: Literal["manual", "api", "demo"] = "manual"
+    default_platform: Literal["tiktok", "shopee"] = "tiktok"
 
     # --- Scheduler ---
     scheduler_default_gap_seconds: int = 5
-    scheduler_max_retries: int = 3
+    scheduler_default_item_seconds: int = 90
+    scheduler_max_consecutive_errors: int = 3
 
     @field_validator("data_dir", mode="before")
     @classmethod

@@ -57,6 +57,7 @@ class PlaylistItem(Base, IDMixin, TimestampMixin):
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     playlist: Mapped[Playlist] = relationship("Playlist", back_populates="items")

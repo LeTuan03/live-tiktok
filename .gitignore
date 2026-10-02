@@ -14,29 +14,38 @@ env/
 *.swp
 *.swo
 
-# Environment
+# Environment & secrets
 .env
 
-# Database
+# Database / generated data
 *.db
+*.db-wal
+*.db-shm
 *.sqlite3
+storage/
+app/storage/
+tts_cache/
+app_data/
 
 # Logs
 *.log
 
-# Distribution
+# Build / distribution
 dist/
 build/
 *.egg-info/
 *.spec
+!liveflow.spec
+installer_output/
+
+# Downloaded tools (FFmpeg)
+tools/
+
+# Tests
+.pytest_cache/
+.ruff_cache/
 
 # OS
 Thumbs.db
 Desktop.ini
 .DS_Store
-
-# App data (local)
-app_data/
-
-# TTS cache
-tts_cache/

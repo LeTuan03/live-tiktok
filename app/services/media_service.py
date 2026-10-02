@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Optional
 
@@ -19,7 +18,8 @@ from app.integrations.ffmpeg.ffprobe_service import FFProbeService
 # Supported media extensions
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".aac", ".m4a", ".flac", ".wma"}
-ALL_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
+ALL_MEDIA_EXTENSIONS = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS | IMAGE_EXTENSIONS
 
 
 class MediaService:
@@ -30,6 +30,10 @@ class MediaService:
         self._product_media_repo = ProductMediaRepository()
         self._ffprobe = FFProbeService()
         self._settings = get_settings()
+
+    @property
+    def ffprobe_available(self) -> bool:
+        return self._ffprobe.is_available()
 
     def import_file(self, file_path: str | Path) -> Any:
         """Import a media file into the library.
@@ -76,6 +80,9 @@ class MediaService:
             return existing
 
         # Probe metadata
+        if ext in IMAGE_EXTENSIONS:
+            return self._import_image(file_path, file_size)
+
         probe_result = self._ffprobe.probe(file_path)
         metadata = probe_result.to_dict() if probe_result else {}
 
@@ -95,10 +102,44 @@ class MediaService:
             "format_name": metadata.get("format_name"),
             "bitrate": metadata.get("bitrate"),
             "metadata_json": json.dumps(probe_result.raw if probe_result else {}, ensure_ascii=False),
-            "is_valid": probe_result is not None,
-            "error_message": None if probe_result else "Không thể đọc metadata",
+            "is_valid": probe_result is not None or not self._ffprobe.is_available(),
+            "error_message": None if probe_result else ("Chưa cài FFmpeg — không đọc được metadata" if not self._ffprobe.is_available() else "File không đọc được (ffprobe lỗi)"),
         }
 
+        media = self._repo.create(data)
+        event_bus.emit(AppEvent.MEDIA_IMPORTED, media_id=media.id)
+        return media
+
+    def _import_image(self, file_path: Path, file_size: int) -> Any:
+        """Import a still image (product photo / presenter banner) using Pillow for dimensions."""
+        width = height = None
+        fmt = None
+        valid = True
+        error = None
+        try:
+            from PIL import Image
+
+            with Image.open(file_path) as im:
+                width, height = im.size
+                fmt = (im.format or "").lower() or None
+        except Exception as e:  # noqa: BLE001
+            valid = False
+            error = f"Không đọc được ảnh: {e}"
+        data = {
+            "filename": file_path.name,
+            "file_path": str(file_path),
+            "media_type": "image",
+            "duration_seconds": None,
+            "width": width,
+            "height": height,
+            "codec": fmt,
+            "file_size_bytes": file_size,
+            "format_name": fmt,
+            "bitrate": None,
+            "metadata_json": "{}",
+            "is_valid": valid,
+            "error_message": error,
+        }
         media = self._repo.create(data)
         event_bus.emit(AppEvent.MEDIA_IMPORTED, media_id=media.id)
         return media
@@ -175,6 +216,45 @@ class MediaService:
     def get_product_media(self, product_id: int) -> list:
         """Get all media for a product."""
         return self._product_media_repo.get_media_for_product(product_id)
+
+    def get_product_ids_for_media(self, media_id: int) -> list[int]:
+        """Get product IDs linked to a media file."""
+        return self._product_media_repo.get_products_for_media(media_id)
+
+    def get_primary_image_for_product(self, product_id: int) -> Any:
+        """First valid linked image for a product, or None."""
+        for m in self._product_media_repo.get_media_for_product(product_id):
+            if m.media_type == "image" and m.is_valid and Path(m.file_path).exists():
+                return m
+        return None
+
+    def get_primary_video_for_product(self, product_id: int) -> Any:
+        """First valid linked video for a product, or None."""
+        for m in self._product_media_repo.get_media_for_product(product_id):
+            if m.media_type == "video" and m.is_valid and Path(m.file_path).exists():
+                return m
+        return None
+
+    def revalidate(self, media_id: int) -> bool:
+        """Re-probe a media file (e.g. after the user restored it) and update its record."""
+        media = self._repo.get_by_id(media_id)
+        if not media:
+            return False
+        path = Path(media.file_path)
+        if not path.exists():
+            self._repo.mark_invalid(media_id, "File không tồn tại trên ổ đĩa")
+            return False
+        if media.media_type == "image":
+            self._repo.delete(media_id)
+            return self.import_file(path) is not None
+        probe = self._ffprobe.probe(path)
+        if probe is None:
+            self._repo.mark_invalid(media_id, "Không thể đọc metadata (ffprobe)")
+            return False
+        data = probe.to_dict()
+        data.update({"is_valid": True, "error_message": None, "file_size_bytes": path.stat().st_size})
+        self._repo.update(media_id, data)
+        return True
 
     # --- Formatting helpers ---
 

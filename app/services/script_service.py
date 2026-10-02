@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 from typing import Any, Dict, Optional, Sequence
 from loguru import logger
@@ -75,7 +74,7 @@ class ScriptService:
                 "Cấu trúc Kịch bản Bẻ Gãy Lời Từ Chối & Nghi Ngại:\n"
                 "- Trực tiếp giải quyết các thắc mắc phổ biến: 'sao đắt thế?', 'dùng có hiệu quả thật không?', 'hàng chính hãng không?'.\n"
                 "- So sánh trực quan giữa sản phẩm này với các loại trôi nổi rẻ tiền trên thị trường.\n"
-                "- Đưa ra cam kết chắc nịch: Bảo hành, cho kiểm hàng, hoàn tiền nếu không đúng mô tả.\n"
+                "- Nêu rõ chính sách bảo hành/đổi trả/kiểm hàng NẾU có trong dữ liệu; nếu không có thì mời khách hỏi shop.\n"
                 "- Chốt hạ bằng ưu đãi đặc quyền trong live."
             ),
             "giveaway_hook": (
@@ -111,7 +110,11 @@ class ScriptService:
             "1. Chỉ trả về duy nhất lời thoại mà streamer sẽ nói trực tiếp trên livestream.\n"
             "2. Có thể kèm các gợi ý hành động/biểu cảm đặt trong ngoặc đơn ngắn gọn (VD: (giơ sản phẩm lại gần camera), (cười tươi)).\n"
             "3. Không đưa lời chào hỏi rườm rà hay mở đầu kiểu 'Dưới đây là kịch bản...'. Vào thẳng câu mở đầu phiên live luôn!\n"
-            "4. Văn phong tiếng Việt tự nhiên, chuẩn ngôn ngữ livestream thương mại điện tử hiện đại."
+            "4. Văn phong tiếng Việt tự nhiên, chuẩn ngôn ngữ livestream thương mại điện tử hiện đại.\n"
+            "5. CHỈ dùng thông tin sản phẩm được cung cấp bên dưới. KHÔNG bịa thêm công dụng, chứng nhận, "
+            "số liệu, giải thưởng, tồn kho, chương trình khuyến mãi hay chính sách ship/bảo hành/đổi trả "
+            "nếu không có trong dữ liệu. Không hứa hẹn kết quả về sức khỏe, làm đẹp, tài chính.\n"
+            "6. Nếu dữ liệu thiếu, hãy nói chung chung và mời khách hỏi thêm thay vì khẳng định."
         )
 
         details = f"- Tên sản phẩm: {name}\n"
@@ -362,7 +365,9 @@ class ScriptService:
         prompt = (
             f"Bạn là chuyên gia thương mại điện tử và sản phẩm. Dựa vào tên sản phẩm '{product_name}' "
             f"(Danh mục: {category or 'Tự động xác định'}, Giá tham khảo: {price or 0:,.0f} đ), "
-            "hãy tự động sáng tạo thông tin chi tiết đầy đủ để chuẩn bị bán hàng livestream.\n\n"
+            "hãy soạn BẢN NHÁP thông tin chi tiết để người bán kiểm tra và hoàn thiện trước khi livestream. "
+            "Chỉ ghi các đặc điểm phổ biến, mang tính mô tả của loại sản phẩm này; KHÔNG bịa chứng nhận, số liệu, "
+            "công dụng y tế/làm đẹp vượt trội hay cam kết hiệu quả. Với thông tin cần người bán xác minh, thêm hậu tố (cần xác minh).\n\n"
             "Trả về MỘT ĐỐI TƯỢNG JSON DUY NHẤT (không dùng markdown codeblock, không ghi giải thích) với các trường:\n"
             "{\n"
             '  "category": "Tên danh mục phù hợp (VD: Thời trang, Mỹ phẩm, Đồ gia dụng...)",\n'

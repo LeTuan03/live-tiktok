@@ -1,40 +1,35 @@
-# Core UI
+# LiveFlow AI Studio — runtime dependencies (Python 3.12+ on Windows 10/11)
+# Install:  pip install -r requirements.txt   (hoặc chạy INSTALL.bat)
+
+# Desktop UI (QtMultimedia dùng để phát audio TTS)
 PySide6>=6.7.0
 
 # Database
 SQLAlchemy>=2.0.30
-alembic>=1.13.0
 
-# Data Validation
+# Config & validation
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
 
-# Async & HTTP
+# Async HTTP (Gemini API, scraping link sản phẩm)
 aiohttp>=3.9.0
 aiofiles>=23.2.0
+beautifulsoup4>=4.12.0
 
-# AI Providers
+# AI providers
 openai>=1.30.0
 
-# TTS
+# Text-to-speech (Microsoft Edge TTS, miễn phí)
 edge-tts>=6.1.0
 
-# OBS Integration
+# OBS Studio WebSocket 5.x
 obsws-python>=1.7.0
 
-# Security
+# Secrets (Windows Credential Manager)
 keyring>=25.2.0
 
 # Logging
 loguru>=0.7.0
 
-# Media
+# Images
 Pillow>=10.3.0
-
-# Dev dependencies (install with: pip install -r requirements-dev.txt)
-# pytest>=8.2.0
-# pytest-asyncio>=0.23.0
-# pytest-qt>=4.4.0
-# ruff>=0.4.0
-# pyright>=1.1.360
-# pyinstaller>=6.6.0

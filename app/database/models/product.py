@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.models.base import Base, IDMixin, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.database.models.media import ProductMedia
+    from app.database.models.script import Script
 
 
 class Product(Base, IDMixin, TimestampMixin):

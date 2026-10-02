@@ -94,9 +94,23 @@ class FFProbeService:
     """Service for extracting media metadata using ffprobe."""
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self._ffprobe_path = settings.ffprobe_path
-        self._ffmpeg_path = settings.ffmpeg_path
+        self._settings = get_settings()
+
+    @property
+    def _ffprobe_path(self) -> str:
+        return self._settings.ffprobe_path or "ffprobe"
+
+    @property
+    def _ffmpeg_path(self) -> str:
+        return self._settings.ffmpeg_path or "ffmpeg"
+
+    def is_available(self) -> bool:
+        """True when the ffprobe binary can be found."""
+        import shutil
+        from pathlib import Path as _P
+
+        p = self._ffprobe_path
+        return _P(p).is_file() or shutil.which(p) is not None
 
     def probe(self, file_path: str | Path) -> Optional[FFProbeResult]:
         """Run ffprobe on a file and return parsed metadata.

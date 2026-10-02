@@ -1,122 +1,88 @@
 # ⚡ LiveFlow AI Studio
 
-**Công cụ AI hỗ trợ livestream bán hàng trên TikTok**
+**Ứng dụng desktop Windows hỗ trợ livestream bán hàng tự động bằng AI trên TikTok LIVE và Shopee Live.**
 
-LiveFlow AI Studio là ứng dụng desktop Windows giúp người bán tự động hóa quy trình livestream bán hàng trên TikTok, bao gồm quản lý sản phẩm, tạo kịch bản AI, tạo giọng nói TTS, điều phối video qua OBS Studio và hỗ trợ trả lời bình luận.
+LiveFlow điều phối nội dung LIVE: lần lượt giới thiệu từng sản phẩm bằng video/ảnh + giọng đọc AI theo kịch
+bản, hiển thị tên + giá, vòng lặp liên tục, trả lời bình luận bằng giọng nói — tất cả phát qua **OBS Studio**
+tới TikTok/Shopee bằng RTMP chính thức.
 
----
-
-## ✨ Tính năng chính
-
-- 📦 **Quản lý sản phẩm** — Thêm, sửa, xóa, import/export CSV
-- 🎥 **Thư viện Media** — Import video, xem metadata, gắn với sản phẩm
-- 📝 **AI Script Studio** — Tạo kịch bản giới thiệu sản phẩm bằng AI
-- 🔊 **AI Voice Studio** — Chuyển kịch bản thành giọng nói tự nhiên (TTS)
-- 🔴 **Live Studio** — Điều phối livestream qua OBS Studio
-- 📅 **Lịch trình** — Tự động trình chiếu sản phẩm theo thứ tự
-- 💬 **Trợ lý bình luận** — AI đề xuất câu trả lời cho bình luận
-- ⚙️ **Cài đặt linh hoạt** — Hỗ trợ nhiều AI/TTS provider
-
----
-
-## 🔧 Yêu cầu hệ thống
-
-- Windows 10/11 64-bit
-- Python 3.12+
-- OBS Studio (có WebSocket plugin)
-- FFmpeg (khuyến nghị)
-
----
-
-## 🚀 Cài đặt
-
-### 1. Clone repository
-
-```bash
-git clone <repository-url>
-cd live-tiktok
+```
+Sản phẩm → Kịch bản AI → Giọng đọc TTS → Playlist → OBS (RTMP) → TikTok LIVE / Shopee Live
+                                              ↑
+                    Trợ lý bình luận (dán câu hỏi → AI gợi ý có căn cứ → duyệt → đọc trên LIVE)
 ```
 
-### 2. Tạo virtual environment (khuyến nghị)
+## Tính năng
+- 📦 **Sản phẩm**: nhập tay, dán link Shopee/TikTok Shop (AI trích xuất), import/export CSV, gắn video/ảnh.
+- 🎥 **Thư viện Media**: import video/ảnh/audio, đọc metadata (ffprobe), kiểm tra file thiếu, gắn với sản phẩm.
+- 📝 **Script Studio**: AI viết kịch bản livestream theo loại/phong cách/thời lượng, chỉ dùng dữ liệu đã xác minh, lưu phiên bản.
+- 🔊 **Voice Studio**: giọng đọc Microsoft Edge TTS (miễn phí), nghe thử, tạo audio hàng loạt, cache theo nội dung.
+- 📅 **Playlist**: thứ tự sản phẩm, thời lượng, nghỉ giữa mục, lặp liên tục/số vòng.
+- 🔴 **Live Studio**: kết nối OBS WebSocket, tạo scene/nguồn riêng, cấu hình RTMP TikTok/Shopee, Bắt đầu/Tạm dừng/Bỏ qua/Dừng điều phối, hàng đợi, nhật ký.
+- 💬 **Trợ lý bình luận**: phân loại, gợi ý trả lời có căn cứ (dữ liệu sản phẩm + chính sách shop), duyệt, sao chép, đọc bằng giọng AI trên LIVE.
+- ⚙️ **Cài đặt**: Gemini/OpenAI, OBS, thông tin shop, FFmpeg, nền tảng, xóa dữ liệu. API key lưu trong Windows Credential Manager.
 
-```bash
+## Yêu cầu
+- Windows 10/11 64-bit · Python 3.12+ · OBS Studio 28+ (WebSocket 5 có sẵn) · Internet (AI + Edge TTS)
+- FFmpeg (tùy chọn, để đọc thời lượng/độ phân giải video) — có script tải tự động.
+
+## Cài đặt nhanh (máy mới)
+1. Cài Python 3.12+ từ https://www.python.org/downloads/windows/ (tích **Add python.exe to PATH**).
+2. Cài OBS Studio từ https://obsproject.com.
+3. Giải nén/clone dự án, **nhấp đúp `INSTALL.bat`** (tạo venv, cài thư viện, hỏi tải FFmpeg).
+4. **Nhấp đúp `RUN.bat`** để mở ứng dụng. `RUN_DEBUG.bat` mở kèm cửa sổ log khi cần tìm lỗi.
+
+Dùng dòng lệnh:
+```powershell
 python -m venv venv
-venv\Scripts\activate
-```
-
-### 3. Cài đặt dependencies
-
-```bash
+.\venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-### 4. Cấu hình
-
-```bash
-copy .env.example .env
-# Chỉnh sửa .env theo nhu cầu
-```
-
-### 5. Chạy ứng dụng
-
-```bash
 python -m app.main
 ```
 
----
-
-## 📁 Cấu trúc dự án
-
+## Đóng gói thành bản chạy không cần Python
 ```
-live-tiktok/
-├── app/
-│   ├── main.py              # Entry point
-│   ├── bootstrap.py          # Dependency checking
-│   ├── config/               # Settings (Pydantic)
-│   ├── core/                 # Events, logging, exceptions, task manager
-│   ├── database/             # SQLAlchemy models, session, migrations
-│   ├── services/             # Business logic
-│   ├── integrations/         # OBS, FFmpeg, LLM, TTS, TikTok
-│   ├── workers/              # Background workers
-│   ├── ui/                   # PySide6 UI
-│   │   ├── windows/          # Main window
-│   │   ├── pages/            # Navigation pages
-│   │   ├── dialogs/          # Modal dialogs
-│   │   ├── components/       # Reusable widgets
-│   │   └── styles/           # Dark theme
-│   └── utils/                # Utility functions
-├── assets/                   # Static assets
-├── tests/                    # pytest tests
-├── requirements.txt
-├── pyproject.toml
-└── README.md
+BUILD_EXE.bat            → dist\LiveFlowAIStudio\LiveFlowAIStudio.exe (PyInstaller)
+scripts\installer.iss    → mở bằng Inno Setup để tạo bộ cài Setup.exe
 ```
 
----
+## Hướng dẫn sử dụng
+Xem **[HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md)** (quy trình từng bước, cấu hình OBS dọc 9:16, TikTok/Shopee,
+xử lý sự cố) và **[docs/TICH_HOP_TIKTOK_SHOPEE.md](docs/TICH_HOP_TIKTOK_SHOPEE.md)** (giới hạn tích hợp).
 
-## 🔒 Bảo mật
+## Cấu trúc dự án
+```
+app/
+├── main.py, bootstrap.py        # khởi động, kiểm tra dependency, excepthook
+├── config/settings.py           # cấu hình (.env, LOCALAPPDATA)
+├── core/                        # logging, events, exceptions, secrets (keyring)
+├── database/                    # SQLAlchemy models, repositories, migrations có version
+├── integrations/
+│   ├── obs/client.py            # OBS WebSocket 5 (scene, media/image/text source, RTMP, stream)
+│   ├── llm/                     # Gemini, OpenAI-compatible, factory
+│   ├── tts/                     # Edge TTS
+│   ├── ffmpeg/                  # ffprobe metadata
+│   └── tiktok/capabilities.py   # ma trận capability TikTok/Shopee
+├── services/                    # product, media, script, voice, comment, platform, scheduler (orchestrator), live_session, activity_log
+└── ui/                          # PySide6: windows, pages, dialogs, styles
+tests/                           # pytest
+scripts/                         # download_ffmpeg.ps1, installer.iss, run_tests.bat
+```
 
-- API keys được lưu trong Windows Credential Manager
-- Không hardcode secret trong source code
-- Dữ liệu sản phẩm chỉ gửi tới AI khi đã cấu hình provider
-- Log file không chứa API key hoặc password
+## Kiểm thử
+```
+scripts\run_tests.bat        (hoặc: pip install -r requirements-dev.txt && pytest -q)
+```
 
----
-
-## 📋 Giới hạn tích hợp TikTok
-
-LiveFlow AI Studio sử dụng capability-based architecture cho TikTok:
-
+## Giới hạn tích hợp TikTok/Shopee (tóm tắt)
 | Tính năng | Trạng thái |
-|-----------|-----------|
-| Đọc bình luận | Manual Mode — người dùng nhập/dán bình luận |
-| Gửi bình luận | Manual Mode — AI đề xuất, người dùng tự gửi |
-| Ghim sản phẩm | Manual Mode — hiển thị hướng dẫn ghim thủ công |
+|---|---|
+| Phát LIVE qua OBS (RTMP) | ✅ Hỗ trợ |
+| Đọc bình luận | 🖐️ Thủ công — dán bình luận |
+| Gửi trả lời | 🖐️ Thủ công — sao chép hoặc AI đọc bằng giọng nói |
+| Ghim sản phẩm | 🖐️ Thủ công — có hướng dẫn |
 
-Ứng dụng **không** scrape private API, reverse-engineer, hoặc tự động né cơ chế bảo mật.
+Ứng dụng **không** scrape API riêng tư, không lưu mật khẩu nền tảng, không vượt CAPTCHA/OTP và không giả lập thành công.
 
----
-
-## 📄 License
-
+## License
 MIT

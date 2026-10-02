@@ -27,6 +27,10 @@ class CommentEvent(Base, IDMixin, TimestampMixin):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_spam: Mapped[bool] = mapped_column(Boolean, default=False)
+    product_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(String(20), default="manual")  # manual | demo | api
 
     # Relationships
     suggestions: Mapped[list[AISuggestion]] = relationship(
@@ -58,11 +62,13 @@ class AISuggestion(Base, IDMixin, TimestampMixin):
     confidence: Mapped[Optional[float]] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default="pending"
-    )  # pending, approved, rejected, sent, failed
+    )  # pending, approved, rejected, sent, sent_manual, failed
     approved_by: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     send_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_auto_reply: Mapped[bool] = mapped_column(Boolean, default=False)
+    needs_data: Mapped[bool] = mapped_column(Boolean, default=False)
+    grounding_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relationships
     comment: Mapped[CommentEvent] = relationship("CommentEvent", back_populates="suggestions")

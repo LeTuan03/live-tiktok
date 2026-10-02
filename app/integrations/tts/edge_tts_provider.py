@@ -32,16 +32,18 @@ class EdgeTTSProvider(BaseTTSProvider):
         """Generate audio file from text using edge-tts."""
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-        logger.info(f"Đang phát giọng đọc Edge TTS: voice={voice_id}, text len={len(text)}")
+        logger.info("Tổng hợp Edge TTS: voice={}, độ dài văn bản={}", voice_id, len(text))
         communicate = edge_tts.Communicate(
             text=text,
             voice=voice_id,
             rate=rate,
             volume=volume,
             pitch=pitch,
+            connect_timeout=15,
+            receive_timeout=120,
         )
         await communicate.save(output_path)
-        logger.info(f"Đã tạo file âm thanh TTS thành công: {output_path}")
+        logger.info("Đã tạo file âm thanh TTS: {}", output_path)
         return output_path
 
     @staticmethod

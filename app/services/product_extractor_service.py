@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 from urllib.parse import urlparse, unquote
 
 import aiohttp
