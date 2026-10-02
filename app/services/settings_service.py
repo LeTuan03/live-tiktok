@@ -28,6 +28,8 @@ SECRET_KEYS = {
     "obs_password",
     "stream_key_tiktok",
     "stream_key_shopee",
+    "did_api_key",
+    "heygen_api_key",
 }
 
 # Well-known setting keys (single source of truth for the UI and services).
@@ -45,8 +47,12 @@ KEY_OBS_VIDEO_SOURCE = "obs_video_source"
 KEY_OBS_AUDIO_SOURCE = "obs_audio_source"
 KEY_OBS_IMAGE_SOURCE = "obs_image_source"
 KEY_OBS_TEXT_SOURCE = "obs_text_source"
+KEY_OBS_AVATAR_SOURCE = "obs_avatar_source"
+KEY_OBS_ENABLE_AVATAR = "obs_enable_avatar"
 KEY_OBS_SHOW_TEXT = "obs_show_text"
 KEY_OBS_AUTO_SWITCH_SCENE = "obs_auto_switch_scene"
+KEY_DID_API_KEY = "did_api_key"
+KEY_HEYGEN_API_KEY = "heygen_api_key"
 KEY_PLATFORM = "default_platform"
 KEY_STREAM_SERVER_TIKTOK = "stream_server_tiktok"
 KEY_STREAM_KEY_TIKTOK = "stream_key_tiktok"

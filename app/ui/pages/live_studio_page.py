@@ -36,12 +36,14 @@ from app.services.scheduler_service import (
 )
 from app.services.settings_service import (
     KEY_OBS_AUTO_SWITCH_SCENE,
+    KEY_OBS_AVATAR_SOURCE,
     KEY_STREAM_KEY_SHOPEE,
     KEY_STREAM_KEY_TIKTOK,
     KEY_STREAM_SERVER_SHOPEE,
     KEY_STREAM_SERVER_TIKTOK,
     SettingsService,
 )
+from app.ui.dialogs.product_showcase_dialog import ProductShowcaseDialog
 from app.ui.pages.settings_page import TestOBSWorker
 from app.ui.styles.dark_theme import COLORS
 
@@ -281,6 +283,15 @@ class LiveStudioPage(QWidget):
         self.stop_btn.setObjectName("dangerButton")
         self.stop_btn.clicked.connect(self._stop_orchestration)
         ctrl_layout.addWidget(self.stop_btn)
+
+        self.showcase_btn = QPushButton("💃 Người Mẫu Giới Thiệu")
+        self.showcase_btn.setToolTip("Mở phòng Người Mẫu AI giới thiệu sản phẩm ngay lập tức lên OBS Live")
+        self.showcase_btn.setStyleSheet(
+            f"color: {COLORS['accent_secondary']}; border: 1px solid {COLORS['accent_secondary']}; "
+            "padding: 6px 12px; border-radius: 6px; font-weight: bold;"
+        )
+        self.showcase_btn.clicked.connect(self._open_showcase_modal)
+        ctrl_layout.addWidget(self.showcase_btn)
         right_layout.addLayout(ctrl_layout)
 
         # Now-playing box
@@ -492,20 +503,72 @@ class LiveStudioPage(QWidget):
             return
         scene, video, audio = self.settings_service.get_obs_sources()
         image, text = self.settings_service.get_obs_extra_sources()
+        avatar = self.settings_service.get(KEY_OBS_AVATAR_SOURCE) or "LiveFlow Avatar"
         reply = QMessageBox.question(
             self,
             "Tạo cấu hình LiveFlow trong OBS",
-            f"LiveFlow sẽ tạo (nếu chưa có) trong OBS:\n\n• Scene: {scene}\n• Image source (ảnh sản phẩm): {image}\n• Media source video: {video}\n• Media source audio: {audio}\n• Text overlay (tên + giá): {text}\n\n"
+            f"LiveFlow sẽ tạo (nếu chưa có) trong OBS:\n\n"
+            f"• Scene: {scene}\n"
+            f"• Image source (ảnh sản phẩm): {image}\n"
+            f"• Media source video: {video}\n"
+            f"• Media source Người Mẫu AI: {avatar}\n"
+            f"• Media source audio: {audio}\n"
+            f"• Text overlay (tên + giá): {text}\n\n"
             "Gợi ý: đặt canvas OBS 1080×1920 (dọc) cho TikTok/Shopee và thêm ảnh nền/banner của bạn phía dưới các nguồn này.\n"
             "Các scene/nguồn khác của bạn KHÔNG bị thay đổi. Tiếp tục?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        ok, msg = self.obs_client.ensure_liveflow_setup(scene, video, audio, image, text)
+        ok, msg = self.obs_client.ensure_liveflow_setup(
+            scene_name=scene,
+            video_source=video,
+            audio_source=audio,
+            image_source=image,
+            text_source=text,
+            avatar_source=avatar,
+        )
         self._add_log(("✅ " if ok else "❌ ") + msg)
         (QMessageBox.information if ok else QMessageBox.critical)(self, "Cấu hình OBS", msg)
         self._poll_obs_status()
+
+    def _open_showcase_modal(self) -> None:
+        """Open the AI Presenter Showcase Modal for currently playing or selected product."""
+        from app.services.product_service import ProductService
+        from PySide6.QtWidgets import QInputDialog
+
+        prod_svc = ProductService()
+        products, _ = prod_svc.get_products(limit=100)
+        if not products:
+            QMessageBox.information(
+                self, "Thông báo", "Chưa có sản phẩm nào trong hệ thống. Vui lòng thêm sản phẩm trước."
+            )
+            return
+
+        # If an item is currently playing, find its product ID
+        target_pid = None
+        if self._orchestrator and self._orchestrator.isRunning() and self._orchestrator.current_index >= 0:
+            if self._orchestrator.current_index < len(self._entries):
+                entry = self._entries[self._orchestrator.current_index]
+                target_pid = entry.product_id
+
+        if not target_pid:
+            # Let user choose product from list
+            items = [f"{p.id} — {p.name}" for p in products]
+            selected, ok = QInputDialog.getItem(
+                self,
+                "Chọn sản phẩm để Người Mẫu AI giới thiệu",
+                "Chọn sản phẩm bạn muốn Người Mẫu AI thuyết trình ngay:",
+                items,
+                0,
+                False,
+            )
+            if not ok or not selected:
+                return
+            target_pid = int(selected.split(" — ")[0])
+
+        dlg = ProductShowcaseDialog(target_pid, self, obs_client=self.obs_client)
+        dlg.exec()
 
     # ---------------------------------------------------------------- RTMP
     def _apply_rtmp(self) -> None:

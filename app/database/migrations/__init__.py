@@ -62,9 +62,17 @@ def _m002_platform_fields(conn: Connection) -> None:
     add_column_if_missing(conn, "generated_audio", "voice_id", "VARCHAR(200)")
 
 
+def _m003_avatar_support(conn: Connection) -> None:
+    """Add AIAvatar support and link products to avatars."""
+    # Base.metadata.create_all handles table creation for ai_avatars,
+    # but we add column avatar_id to existing products table if missing.
+    add_column_if_missing(conn, "products", "avatar_id", "INTEGER REFERENCES ai_avatars(id) ON DELETE SET NULL")
+
+
 MIGRATIONS: list[tuple[int, str, Migration]] = [
     (1, "baseline", _m001_baseline),
     (2, "platform_fields", _m002_platform_fields),
+    (3, "avatar_support", _m003_avatar_support),
 ]
 
 CURRENT_SCHEMA_VERSION = MIGRATIONS[-1][0]

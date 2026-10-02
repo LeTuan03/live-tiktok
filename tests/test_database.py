@@ -104,3 +104,22 @@ def test_migrations_are_idempotent_and_upgrade_old_schema(tmp_path):
     # Running again changes nothing
     assert run_migrations(engine) == CURRENT_SCHEMA_VERSION
     engine.dispose()
+
+
+def test_avatar_crud_and_default(session):
+    from app.database.repositories.avatar_repo import AvatarRepository
+    repo = AvatarRepository(session)
+    a1 = repo.create(name="Model 1", gender="female", is_default=True)
+    assert a1.id is not None
+    assert repo.get_default().id == a1.id
+
+    a2 = repo.create(name="Model 2", gender="male", is_default=True)
+    assert repo.get_default().id == a2.id
+    assert not repo.get_by_id(a1.id).is_default
+
+    updated = repo.update(a1.id, style="Năng động")
+    assert updated.style == "Năng động"
+
+    assert repo.count() >= 2
+    assert repo.delete(a1.id) is True
+    assert repo.get_by_id(a1.id) is None

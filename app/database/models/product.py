@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.models.base import Base, IDMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.database.models.avatar import AIAvatar
     from app.database.models.media import ProductMedia
     from app.database.models.script import Script
 
@@ -41,7 +42,14 @@ class Product(Base, IDMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    avatar_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("ai_avatars.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Relationships
+    avatar: Mapped[Optional["AIAvatar"]] = relationship(
+        "AIAvatar", back_populates="products"
+    )
     variants: Mapped[list[ProductVariant]] = relationship(
         "ProductVariant", back_populates="product", cascade="all, delete-orphan"
     )

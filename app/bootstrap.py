@@ -161,6 +161,7 @@ def initialize_app_directories(data_dir: Path) -> None:
         data_dir / "logs",
         data_dir / "media",
         data_dir / "audio",
+        data_dir / "avatars",
         data_dir / "tts_cache",
         data_dir / "exports",
         data_dir / "backups",

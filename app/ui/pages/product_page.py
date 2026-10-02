@@ -40,6 +40,7 @@ from app.services.product_service import ProductService
 from app.services.script_service import ScriptService
 from app.services.settings_service import SettingsService
 from app.ui.dialogs.link_media_dialog import LinkProductToMediaDialog
+from app.ui.dialogs.product_showcase_dialog import ProductShowcaseDialog
 from app.ui.styles.dark_theme import COLORS
 
 
@@ -535,6 +536,15 @@ class ProductPage(QWidget):
         add_link_btn.clicked.connect(self._on_add_product_from_link)
         toolbar.addWidget(add_link_btn)
 
+        showcase_toolbar_btn = QPushButton("💃 Người Mẫu AI Giới Thiệu")
+        showcase_toolbar_btn.setToolTip("Mở phòng giới thiệu sản phẩm với Người Mẫu Ảo (AI Presenter Showcase)")
+        showcase_toolbar_btn.setStyleSheet(
+            f"color: {COLORS['accent_secondary']}; border: 1px solid {COLORS['accent_secondary']}; "
+            "padding: 6px 12px; border-radius: 6px; font-weight: bold;"
+        )
+        showcase_toolbar_btn.clicked.connect(self._on_showcase_selected)
+        toolbar.addWidget(showcase_toolbar_btn)
+
         add_btn = QPushButton("➕ Thêm sản phẩm")
         add_btn.setObjectName("primaryButton")
         add_btn.clicked.connect(self._on_add_product)
@@ -556,7 +566,7 @@ class ProductPage(QWidget):
         self._table.setColumnWidth(4, 110)
         self._table.setColumnWidth(5, 110)
         self._table.setColumnWidth(6, 90)
-        self._table.setColumnWidth(7, 170)
+        self._table.setColumnWidth(7, 215)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._table.setAlternatingRowColors(True)
@@ -638,6 +648,13 @@ class ProductPage(QWidget):
             action_layout = QHBoxLayout(action_widget)
             action_layout.setContentsMargins(4, 2, 4, 2)
             action_layout.setSpacing(4)
+
+            showcase_btn = QPushButton("💃")
+            showcase_btn.setFixedSize(32, 28)
+            showcase_btn.setToolTip("Người Mẫu AI giới thiệu sản phẩm (Showcase & Teleprompter)")
+            showcase_btn.setStyleSheet(f"color: {COLORS['accent_secondary']}; font-weight: bold;")
+            showcase_btn.clicked.connect(lambda _, pid=product.id: self._showcase_product(pid))
+            action_layout.addWidget(showcase_btn)
 
             edit_btn = QPushButton("✏️")
             edit_btn.setFixedSize(32, 28)
@@ -722,6 +739,24 @@ class ProductPage(QWidget):
             self.refresh_data()
         except Exception as e:
             QMessageBox.critical(self, "Lỗi", f"Không thể tạo sản phẩm:\n{e}")
+
+    def _on_showcase_selected(self) -> None:
+        row = self._table.currentRow()
+        if row < 0:
+            if self._table.rowCount() > 0:
+                row = 0
+            else:
+                QMessageBox.information(self, "Thông báo", "Vui lòng chọn hoặc thêm sản phẩm để giới thiệu.")
+                return
+        item = self._table.item(row, 0)
+        if not item:
+            return
+        product_id = item.data(Qt.ItemDataRole.UserRole)
+        self._showcase_product(product_id)
+
+    def _showcase_product(self, product_id: int) -> None:
+        dlg = ProductShowcaseDialog(product_id, self)
+        dlg.exec()
 
     def _on_edit_product(self) -> None:
         row = self._table.currentRow()

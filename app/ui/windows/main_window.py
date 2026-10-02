@@ -27,6 +27,7 @@ from app.config.settings import APP_VERSION
 from app.database.session import get_session
 from app.services.settings_service import KEY_CLOSE_TO_TRAY, SettingsService
 from app.ui.pages.comment_page import CommentPage
+from app.ui.pages.avatar_page import AvatarPage
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.live_studio_page import LiveStudioPage
 from app.ui.pages.media_page import MediaPage
@@ -41,6 +42,7 @@ from app.ui.styles.dark_theme import COLORS, get_stylesheet
 NAV_ITEMS = [
     ("🏠", "Bảng điều khiển"),
     ("📦", "Sản phẩm"),
+    ("💃", "Người mẫu AI"),
     ("🎥", "Thư viện Media"),
     ("📝", "Script Studio"),
     ("🔊", "Voice Studio"),
@@ -138,6 +140,7 @@ class MainWindow(QMainWindow):
 
         self._dashboard_page = DashboardPage()
         self._product_page = ProductPage()
+        self._avatar_page = AvatarPage()
         self._media_page = MediaPage()
         self._script_page = ScriptPage()
         self._voice_page = VoicePage()
@@ -147,7 +150,7 @@ class MainWindow(QMainWindow):
         self._settings_page = SettingsPage()
 
         for page in (
-            self._dashboard_page, self._product_page, self._media_page, self._script_page, self._voice_page,
+            self._dashboard_page, self._product_page, self._avatar_page, self._media_page, self._script_page, self._voice_page,
             self._live_page, self._scheduler_page, self._comment_page, self._settings_page,
         ):
             self._content_stack.addWidget(page)
@@ -231,6 +234,8 @@ class MainWindow(QMainWindow):
                 self._dashboard_page.refresh_data()
             elif page is self._product_page:
                 self._product_page.refresh_data()
+            elif page is self._avatar_page:
+                self._avatar_page.refresh_avatars()
             elif page is self._media_page:
                 self._media_page.refresh_data()
             elif page is self._script_page:

@@ -363,6 +363,90 @@ class OBSClient:
             logger.error("Lỗi cập nhật text source '{}': {}", input_name, e)
             return False
 
+    def set_avatar_media_file(
+        self,
+        input_name: str,
+        file_path: str,
+        loop: bool = True,
+        chroma_key: bool = True,
+        scene_name: str = "",
+        position: str = "bottom_right",
+        scale: float = 0.38,
+    ) -> bool:
+        """Point an avatar input at a video/photo file, optionally updating position and chroma key."""
+        if not self.is_connected:
+            return False
+        try:
+            settings: dict[str, Any] = {
+                "local_file": file_path or "",
+                "looping": loop,
+                "restart_on_activate": True,
+            }
+            self._call("set_input_settings", input_name, settings, True)
+            if chroma_key:
+                self.set_source_chroma_key(input_name, enabled=True)
+            if scene_name:
+                self._place_avatar_overlay(scene_name, input_name, position=position, scale=scale)
+            return True
+        except Exception as e:
+            logger.error("Lỗi đặt media cho avatar '{}': {}", input_name, e)
+            return False
+
+    def set_source_chroma_key(
+        self,
+        source_name: str,
+        enabled: bool = True,
+        key_color_type: str = "green",
+        similarity: int = 400,
+        smoothness: int = 80,
+    ) -> bool:
+        """Add or toggle Chroma Key filter on a source (used for green screen avatars)."""
+        if not self.is_connected:
+            return False
+        filter_name = "Chroma Key (LiveFlow)"
+        try:
+            # Check existing filters
+            res = self._call("get_source_filter_list", source_name)
+            filters = [f.get("filterName") if isinstance(f, dict) else getattr(f, "filter_name", "") for f in (getattr(res, "filters", []) or [])]
+            if filter_name not in filters:
+                self._call(
+                    "create_source_filter",
+                    source_name,
+                    filter_name,
+                    "chroma_key_filter",
+                    {
+                        "key_color_type": key_color_type,
+                        "similarity": similarity,
+                        "smoothness": smoothness,
+                    },
+                )
+            else:
+                self._call(
+                    "set_source_filter_enabled",
+                    source_name,
+                    filter_name,
+                    enabled,
+                )
+            return True
+        except Exception as e:
+            logger.debug("Không thể áp dụng chroma key filter trên '{}': {}", source_name, e)
+            return False
+
+    def set_scene_item_visible(self, scene_name: str, source_name: str, visible: bool) -> bool:
+        """Toggle visibility of a source in a scene."""
+        if not self.is_connected:
+            return False
+        try:
+            item = self._call("get_scene_item_id", scene_name, source_name)
+            item_id = getattr(item, "scene_item_id", None)
+            if item_id is None:
+                return False
+            self._call("set_scene_item_enabled", scene_name, item_id, visible)
+            return True
+        except Exception as e:
+            logger.debug("Không thể đổi trạng thái hiển thị của '{}' trong scene '{}': {}", source_name, scene_name, e)
+            return False
+
     def ensure_liveflow_setup(
         self,
         scene_name: str,
@@ -370,6 +454,7 @@ class OBSClient:
         audio_source: str,
         image_source: str = "",
         text_source: str = "",
+        avatar_source: str = "",
     ) -> tuple[bool, str]:
         """Create the LiveFlow scene and media inputs if they do not exist.
 
@@ -385,7 +470,7 @@ class OBSClient:
                 created.append(f"Scene '{scene_name}'")
 
             inputs = set(self.list_inputs())
-            # Z-order: image (bottom) → video → text (top). OBS puts newer items on top.
+            # Z-order: image (bottom) → video → avatar → text (top). OBS puts newer items on top.
             if image_source:
                 if image_source not in inputs:
                     self._call("create_input", scene_name, image_source, "image_source", {"file": ""}, True)
@@ -418,6 +503,20 @@ class OBSClient:
             else:
                 self._ensure_in_scene(scene_name, audio_source)
 
+            if avatar_source:
+                if avatar_source not in inputs:
+                    self._call(
+                        "create_input",
+                        scene_name,
+                        avatar_source,
+                        "ffmpeg_source",
+                        {"is_local_file": True, "looping": True, "restart_on_activate": True, "clear_on_media_end": True},
+                        True,
+                    )
+                    created.append(f"Người mẫu AI '{avatar_source}'")
+                else:
+                    self._ensure_in_scene(scene_name, avatar_source)
+
             if text_source:
                 if text_source not in inputs:
                     self._call(
@@ -444,6 +543,8 @@ class OBSClient:
             if image_source:
                 self._fit_to_canvas(scene_name, image_source)
             self._fit_to_canvas(scene_name, video_source)
+            if avatar_source:
+                self._place_avatar_overlay(scene_name, avatar_source)
             if text_source:
                 self._place_text_bottom(scene_name, text_source)
 
@@ -483,6 +584,53 @@ class OBSClient:
             )
         except Exception as e:
             logger.debug("Không thể đặt vị trí text overlay: {}", e)
+
+    def _place_avatar_overlay(
+        self, scene_name: str, source_name: str, position: str = "bottom_right", scale: float = 0.38
+    ) -> None:
+        """Place the AI Avatar on the canvas (default: bottom-right overlay)."""
+        try:
+            video = self._call("get_video_settings")
+            width = getattr(video, "base_width", None)
+            height = getattr(video, "base_height", None)
+            item = self._call("get_scene_item_id", scene_name, source_name)
+            item_id = getattr(item, "scene_item_id", None)
+            if not (width and height and item_id is not None):
+                return
+
+            avatar_w = int(width * scale)
+            avatar_h = int(height * scale * 1.3)  # Slightly taller aspect
+
+            if position == "bottom_left":
+                pos_x = int(width * 0.03)
+                pos_y = int(height - avatar_h)
+            elif position == "center":
+                pos_x = int((width - avatar_w) / 2)
+                pos_y = int(height * 0.15)
+            elif position == "full":
+                pos_x = 0
+                pos_y = 0
+                avatar_w = width
+                avatar_h = height
+            else:  # bottom_right (standard TikTok live streamer overlay)
+                pos_x = int(width - avatar_w)
+                pos_y = int(height - avatar_h)
+
+            self._call(
+                "set_scene_item_transform",
+                scene_name,
+                item_id,
+                {
+                    "positionX": pos_x,
+                    "positionY": pos_y,
+                    "boundsType": "OBS_BOUNDS_SCALE_INNER",
+                    "boundsAlignment": 0,
+                    "boundsWidth": avatar_w,
+                    "boundsHeight": avatar_h,
+                },
+            )
+        except Exception as e:
+            logger.debug("Không thể đặt vị trí avatar overlay: {}", e)
 
     def _ensure_in_scene(self, scene_name: str, source_name: str) -> None:
         """If an existing input is not part of the LiveFlow scene, add it (no-op otherwise)."""

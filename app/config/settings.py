@@ -105,6 +105,7 @@ class AppSettings(BaseSettings):
     obs_audio_source: str = "LiveFlow Audio"
     obs_image_source: str = "LiveFlow Image"
     obs_text_source: str = "LiveFlow Text"
+    obs_avatar_source: str = "LiveFlow Avatar"
     obs_reconnect_max_attempts: int = 5
 
     # --- AI / LLM ---
@@ -145,6 +146,17 @@ class AppSettings(BaseSettings):
     @property
     def effective_media_dir(self) -> Path:
         d = self.media_dir or (self.data_dir / "media")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    # --- Avatar / Digital Presenter ---
+    avatar_dir: Path | None = None
+    did_api_key: str = ""
+    heygen_api_key: str = ""
+
+    @property
+    def effective_avatar_dir(self) -> Path:
+        d = self.avatar_dir or (self.data_dir / "avatars")
         d.mkdir(parents=True, exist_ok=True)
         return d
 
