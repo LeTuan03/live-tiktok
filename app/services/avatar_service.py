@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from loguru import logger
 
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QImage, QPainter, QPen
 from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
@@ -141,48 +139,41 @@ class AvatarService:
         if out_path.exists():
             return str(out_path)
 
-        # Ensure QGuiApplication exists for QPainter font handling
-        from PySide6.QtGui import QGuiApplication
-        import sys
-        if QGuiApplication.instance() is None:
-            _ = QGuiApplication(sys.argv)
+        try:
+            from PIL import Image, ImageDraw
 
-        width, height = 400, 600
-        image = QImage(width, height, QImage.Format.Format_ARGB32)
-        # Transparent green chroma background (or modern gradient for preview)
-        image.fill(QColor(0, 255, 0, 255))  # Green screen canvas for chroma key testing
+            width, height = 400, 600
+            # Green screen canvas for chroma key testing
+            img = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+            draw = ImageDraw.Draw(img)
 
-        painter = QPainter(image)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            # Hex to RGB helper
+            h = bg_hex.lstrip("#")
+            if len(h) == 6:
+                bg_rgb = tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+            else:
+                bg_rgb = (108, 92, 231)
 
-        # Draw a stylish character silhouette / avatar badge
-        card_rect = QRect(40, 60, 320, 480)
-        painter.setBrush(QBrush(QColor(bg_hex)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(card_rect, 24, 24)
+            # Rounded card
+            draw.rounded_rectangle([40, 60, 360, 540], radius=24, fill=bg_rgb)
 
-        # Head / Hair
-        painter.setBrush(QBrush(QColor(255, 255, 255, 230)))
-        painter.drawEllipse(130, 110, 140, 140)
+            # Head / silhouette (white circle)
+            draw.ellipse([130, 110, 270, 250], fill=(255, 255, 255, 230))
 
-        # Body / Shoulders
-        painter.setBrush(QBrush(QColor(255, 255, 255, 180)))
-        painter.drawChord(QRect(80, 230, 240, 240), 0, 180 * 16)
+            # Body / shoulders
+            draw.chord([80, 230, 320, 470], start=0, end=180, fill=(255, 255, 255, 180))
 
-        # Initials badge
-        painter.setFont(QFont("Segoe UI", 36, QFont.Weight.Bold))
-        painter.setPen(QColor(bg_hex))
-        painter.drawText(QRect(130, 110, 140, 140), Qt.AlignmentFlag.AlignCenter, initial)
+            # Initials badge and label
+            short_name = name.split("—")[0].strip()
+            draw.text((200, 180), initial, fill=bg_rgb, anchor="mm")
+            draw.text((200, 500), f"AI {short_name}", fill=(255, 255, 255, 255), anchor="mm")
 
-        # Name label at bottom
-        painter.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
-        painter.setPen(QColor(255, 255, 255))
-        short_name = name.split("—")[0].strip()
-        painter.drawText(QRect(40, 480, 320, 40), Qt.AlignmentFlag.AlignCenter, f"AI {short_name}")
+            img.save(str(out_path))
+            return str(out_path)
+        except Exception as e:
+            logger.warning("Không thể tạo avatar art: {}", e)
+            return ""
 
-        painter.end()
-        image.save(str(out_path))
-        return str(out_path)
 
     # ------------------------------------------------------------ CRUD
     def get_avatars(self, active_only: bool = True) -> Sequence[AIAvatar]:
@@ -263,7 +254,8 @@ class AvatarService:
         if not clean_text:
             return None, 0.0
 
-        out_name = f"pitch_{abs(hash(clean_text)) % 1000000}_{int(speed * 100)}.mp3"
+        hash_key = self.voice_service.compute_audio_hash(clean_text, voice_id, speed)[:12]
+        out_name = f"pitch_{hash_key}.mp3"
         out_path = self.settings.effective_audio_dir / out_name
 
         try:

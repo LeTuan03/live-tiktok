@@ -107,6 +107,43 @@ def test_tts_rejects_empty_text(session):
         asyncio.run(service.generate_speech(1, "   "))
 
 
+def test_voice_service_synthesize_speech_and_duration(session, tmp_path):
+    service = VoiceService(VoiceRepository(session), storage_dir=tmp_path)
+    target_file = tmp_path / "test_out.mp3"
+
+    async def fake_synth(text, output_path, voice_id, speed, volume):
+        Path(output_path).write_bytes(b"\xff\xfb" * 3000)
+
+    with patch.object(service, "_synthesize", side_effect=fake_synth):
+        out_path = asyncio.run(service.synthesize_speech("Chào mừng bạn đến với livestream", output_path=target_file))
+        assert Path(out_path).exists()
+        assert Path(out_path) == target_file
+
+        duration = service.get_audio_duration(out_path)
+        assert duration > 0.0
+
+
+def test_avatar_service_generate_speech_for_pitch(session, tmp_path):
+    from app.services.avatar_service import AvatarService
+
+    service = AvatarService(session)
+
+    async def fake_synthesize(text, output_path, voice_id, speed, volume):
+        Path(output_path).write_bytes(b"\xff\xfb" * 3000)
+
+    with patch.object(service.voice_service, "_synthesize", side_effect=fake_synthesize):
+        audio_path, duration = asyncio.run(
+            service.generate_speech_for_pitch(
+                text="Đây là sản phẩm áo thun cao cấp",
+                voice_id="vi-VN-HoaiMyNeural",
+                speed=1.0,
+            )
+        )
+        assert audio_path is not None
+        assert Path(audio_path).exists()
+        assert duration > 0.0
+
+
 # ---------------------------------------------------------- settings/secrets
 def test_secrets_go_to_keyring_not_database(session, _fake_keyring):
     svc = SettingsService(session)
@@ -129,6 +166,29 @@ def test_secrets_fall_back_to_database_when_keyring_missing(session, monkeypatch
     svc = SettingsService(session)
     svc.set_setting("obs_password", "pw", is_secret=True)
     assert svc.get_setting("obs_password") == "pw"
+
+
+def test_settings_service_obs_getters_and_compat(session):
+    svc = SettingsService(session)
+    svc.set_setting("obs_host", "127.0.0.1")
+    svc.set_setting("obs_port", "4455")
+    svc.set_setting("obs_password", "secret_pwd", is_secret=True)
+    svc.set_setting("obs_scene_name", "Main Scene")
+    svc.set_setting("obs_video_source", "Main Video")
+    svc.set_setting("obs_audio_source", "Main Audio")
+    svc.set_setting("obs_avatar_source", "Custom Avatar")
+
+    assert svc.get_obs_host() == "127.0.0.1"
+    assert svc.get_obs_port() == 4455
+    assert svc.get_obs_password() == "secret_pwd"
+    assert svc.get_obs_scene() == "Main Scene"
+    assert svc.get_obs_video_source() == "Main Video"
+    assert svc.get_obs_audio_source() == "Main Audio"
+    assert svc.get_obs_avatar_source() == "Custom Avatar"
+    assert svc.get("obs_host") == "127.0.0.1"
+
+    svc.set_secret("test_secret", "top_secret_val")
+    assert svc.get_secret("test_secret") == "top_secret_val"
 
 
 def test_llm_factory_requires_credentials(session):

@@ -19,6 +19,9 @@ def test_disconnected_client_returns_no_fake_data():
     assert client.set_current_scene("Any") is False
     assert client.is_streaming() is None
     assert client.set_media_source_file("LiveFlow Video", "x.mp4") is False
+    assert client.set_media_file("LiveFlow Audio", "x.mp3") is False
+    assert client.set_image_source_file("LiveFlow Image", "x.png") is False
+    assert client.set_image_file("LiveFlow Image", "x.png") is False
     assert client.set_text("LiveFlow Text", "hi") is False
     status = client.get_status()
     assert status.connected is False and status.scenes == []

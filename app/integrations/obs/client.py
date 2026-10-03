@@ -301,18 +301,26 @@ class OBSClient:
                 {
                     "is_local_file": True,
                     "local_file": file_path,
+                    "file": file_path,
                     "looping": bool(loop),
                     "restart_on_activate": True,
                     "clear_on_media_end": False,
                 },
                 True,
             )
-            self._call("trigger_media_input_action", input_name, MEDIA_RESTART)
+            try:
+                self._call("trigger_media_input_action", input_name, MEDIA_RESTART)
+            except Exception:
+                pass
             logger.info("OBS media '{}' ← {}", input_name, file_path)
             return True
         except Exception as e:
             logger.error("Lỗi đặt file cho media source '{}': {}", input_name, e)
             return False
+
+    def set_media_file(self, input_name: str, file_path: str, loop: bool = False) -> bool:
+        """Alias for set_media_source_file."""
+        return self.set_media_source_file(input_name=input_name, file_path=file_path, loop=loop)
 
     def media_action(self, input_name: str, action: str) -> bool:
         if not self.is_connected:
@@ -352,6 +360,10 @@ class OBSClient:
             logger.error("Lỗi đặt ảnh cho image source '{}': {}", input_name, e)
             return False
 
+    def set_image_file(self, input_name: str, file_path: str) -> bool:
+        """Alias for set_image_source_file."""
+        return self.set_image_source_file(input_name=input_name, file_path=file_path)
+
     def set_text(self, input_name: str, text: str) -> bool:
         """Update a GDI+/FreeType text source."""
         if not self.is_connected:
@@ -378,11 +390,18 @@ class OBSClient:
             return False
         try:
             settings: dict[str, Any] = {
+                "is_local_file": True,
                 "local_file": file_path or "",
+                "file": file_path or "",
                 "looping": loop,
                 "restart_on_activate": True,
+                "clear_on_media_end": False,
             }
             self._call("set_input_settings", input_name, settings, True)
+            try:
+                self._call("trigger_media_input_action", input_name, MEDIA_RESTART)
+            except Exception:
+                pass
             if chroma_key:
                 self.set_source_chroma_key(input_name, enabled=True)
             if scene_name:

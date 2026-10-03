@@ -206,6 +206,62 @@ class SettingsService:
         text = self.get_setting(KEY_OBS_TEXT_SOURCE, "") or app_settings.obs_text_source
         return image, text
 
+    def get_obs_host(self) -> str:
+        """Return the OBS WebSocket host."""
+        host, _, _ = self.get_obs_connection()
+        return host
+
+    def get_obs_port(self) -> int:
+        """Return the OBS WebSocket port."""
+        _, port, _ = self.get_obs_connection()
+        return port
+
+    def get_obs_password(self) -> str:
+        """Return the OBS WebSocket password."""
+        _, _, password = self.get_obs_connection()
+        return password
+
+    def get_obs_scene(self) -> str:
+        """Return the active OBS scene name."""
+        scene, _, _ = self.get_obs_sources()
+        return scene
+
+    def get_obs_video_source(self) -> str:
+        """Return the OBS video source name."""
+        _, video, _ = self.get_obs_sources()
+        return video
+
+    def get_obs_audio_source(self) -> str:
+        """Return the OBS audio source name."""
+        _, _, audio = self.get_obs_sources()
+        return audio
+
+    def get_obs_avatar_source(self) -> str:
+        """Return the OBS avatar source name."""
+        return self.get_setting(KEY_OBS_AVATAR_SOURCE, "") or "LiveFlow Avatar"
+
+    def get_obs_image_source(self) -> str:
+        """Return the OBS image source name."""
+        image, _ = self.get_obs_extra_sources()
+        return image
+
+    def get_obs_text_source(self) -> str:
+        """Return the OBS text source name."""
+        _, text = self.get_obs_extra_sources()
+        return text
+
+    def get(self, key: str, default: str = "") -> str:
+        """Dict-like access alias for get_setting."""
+        return self.get_setting(key, default)
+
+    def get_secret(self, key: str, default: str = "") -> str:
+        """Retrieve a secret setting value."""
+        return self.get_setting(key, default)
+
+    def set_secret(self, key: str, value: str) -> None:
+        """Persist a secret setting value."""
+        self.set_setting(key, value, is_secret=True)
+
     def get_platform(self) -> str:
         from app.config.settings import get_settings
 
@@ -218,3 +274,4 @@ class SettingsService:
             "return": self.get_setting(KEY_SHOP_RETURN_POLICY, ""),
             "warranty": self.get_setting(KEY_SHOP_WARRANTY_POLICY, ""),
         }
+

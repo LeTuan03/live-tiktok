@@ -729,51 +729,78 @@ class ProductShowcaseDialog(QDialog):
             QMessageBox.warning(self, "Thông báo", "Vui lòng chọn Người Mẫu AI.")
             return
 
-        if not self.obs_client.is_connected:
-            # Attempt quick connection
-            host = self.settings_service.get_obs_host()
-            port = self.settings_service.get_obs_port()
-            pwd = self.settings_service.get_obs_password()
-            self.obs_client.configure(host, port, pwd)
-            if not self.obs_client.connect():
-                QMessageBox.warning(
-                    self,
-                    "Chưa kết nối OBS",
-                    f"Không thể kết nối tới OBS Studio tại {host}:{port}.\n"
-                    "Vui lòng bật OBS và kích hoạt WebSocket Server trong Tools -> WebSocket Server Settings."
+        try:
+            if not self.obs_client.is_connected:
+                # Attempt quick connection
+                host, port, pwd = self.settings_service.get_obs_connection()
+                self.obs_client.configure(host, port, pwd)
+                if not self.obs_client.connect():
+                    QMessageBox.warning(
+                        self,
+                        "Chưa kết nối OBS",
+                        f"Không thể kết nối tới OBS Studio tại {host}:{port}.\n"
+                        "Vui lòng bật OBS và kích hoạt WebSocket Server trong Tools -> WebSocket Server Settings."
+                    )
+                    return
+
+            # Ensure avatar has correct position and chroma key
+            self.current_avatar.obs_position = self.pos_combo.currentData() or "bottom_right"
+            self.current_avatar.transparent_bg = self.chroma_check.isChecked()
+
+            scene_name = self.settings_service.get_obs_scene()
+            ok, msg = self.avatar_service.send_avatar_to_obs(
+                obs_client=self.obs_client,
+                avatar=self.current_avatar,
+                scene_name=scene_name,
+            )
+
+            if ok:
+                # If audio is not yet generated, attempt to generate it from the pitch text
+                if not self.current_audio_path:
+                    text = self.pitch_text.toPlainText().strip()
+                    if text:
+                        self.status_tag.setText("Đang tổng hợp giọng nói cho OBS...")
+                        voice_id = self.voice_combo.currentData() or "vi-VN-HoaiMyNeural"
+                        speed = self.speed_spin.value()
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            audio_path, duration = loop.run_until_complete(
+                                self.avatar_service.generate_speech_for_pitch(
+                                    text=text,
+                                    voice_id=voice_id,
+                                    speed=speed,
+                                )
+                            )
+                            loop.close()
+                            if audio_path and os.path.exists(audio_path):
+                                self.current_audio_path = audio_path
+                                self.audio_duration = max(1.0, duration)
+                        except Exception as ex:
+                            logger.warning("Không thể tự động sinh âm thanh cho OBS: {}", ex)
+
+                # Play audio pitch into OBS if audio source exists
+                if self.current_audio_path and os.path.exists(self.current_audio_path):
+                    audio_src = self.settings_service.get_obs_audio_source()
+                    self.obs_client.set_media_source_file(audio_src, self.current_audio_path, loop=False)
+
+                self.status_tag.setText("ĐÃ PHÁT TRÊN OBS LIVE!")
+                self.live_badge.setText("● ĐANG LIVE TRÊN OBS")
+                self.live_badge.setStyleSheet(
+                    "background-color: #00B894; color: white; padding: 6px 14px; "
+                    "border-radius: 12px; font-weight: bold; font-size: 11px;"
                 )
-                return
+                QMessageBox.information(
+                    self,
+                    "OBS Livestream",
+                    f"✅ Thành công!\n\n{msg}\n\nNgười Mẫu AI đã được kích hoạt trên màn hình OBS Studio."
+                )
+            else:
+                QMessageBox.warning(self, "Lỗi OBS", msg)
+        except Exception as e:
+            logger.exception("Lỗi khi phát Người Mẫu AI lên OBS")
+            QMessageBox.critical(self, "Lỗi OBS", f"Đã xảy ra lỗi khi gửi lên OBS: {e}")
 
-        # Ensure avatar has correct position and chroma key
-        self.current_avatar.obs_position = self.pos_combo.currentData() or "bottom_right"
-        self.current_avatar.transparent_bg = self.chroma_check.isChecked()
-
-        scene_name = self.settings_service.get_obs_scene()
-        ok, msg = self.avatar_service.send_avatar_to_obs(
-            obs_client=self.obs_client,
-            avatar=self.current_avatar,
-            scene_name=scene_name,
-        )
-
-        if ok:
-            # Also play audio pitch into OBS if audio source exists
-            if self.current_audio_path and os.path.exists(self.current_audio_path):
-                audio_src = self.settings_service.get_obs_audio_source()
-                self.obs_client.set_media_file(audio_src, self.current_audio_path, loop=False)
-
-            self.status_tag.setText("ĐÃ PHÁT TRÊN OBS LIVE!")
-            self.live_badge.setText("● ĐANG LIVE TRÊN OBS")
-            self.live_badge.setStyleSheet(
-                "background-color: #00B894; color: white; padding: 6px 14px; "
-                "border-radius: 12px; font-weight: bold; font-size: 11px;"
-            )
-            QMessageBox.information(
-                self,
-                "OBS Livestream",
-                f"✅ Thành công!\n\n{msg}\n\nNgười Mẫu AI đã được kích hoạt trên màn hình OBS Studio."
-            )
-        else:
-            QMessageBox.warning(self, "Lỗi OBS", msg)
 
     # ----------------- Video Generation -----------------
     def _on_generate_video(self) -> None:

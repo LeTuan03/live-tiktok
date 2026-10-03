@@ -200,3 +200,7 @@ class FFProbeService:
         if width and height:
             return f"{width}×{height}"
         return "—"
+
+
+FFprobeService = FFProbeService
+

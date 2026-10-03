@@ -221,6 +221,35 @@ class VoiceService:
         volume = profile.volume if profile else 1.0
         return await self.generate_preview(text, voice_id, speed, volume)
 
+    async def synthesize_speech(
+        self,
+        text: str,
+        voice_id: Optional[str] = None,
+        speed: float = 1.0,
+        volume: float = 1.0,
+        output_path: Optional[str | Path] = None,
+    ) -> str:
+        """Synthesize speech directly to an output file and return the file path as string."""
+        text = text.strip()
+        if not text:
+            raise TTSProviderError("Nội dung kịch bản trống, không thể tạo giọng đọc.")
+
+        target_voice_id = voice_id or get_settings().tts_default_voice
+        if output_path:
+            out_file = Path(output_path)
+            out_file.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            digest = self.compute_audio_hash(text, target_voice_id, speed, volume)[:12]
+            out_file = self.storage_dir / f"tts_{digest}.mp3"
+
+        await self._synthesize(text, out_file, target_voice_id, speed, volume)
+        return str(out_file)
+
+    def get_audio_duration(self, file_path: str | Path) -> float:
+        """Get duration of audio file in seconds, or 0.0 if unable to determine."""
+        duration = estimate_mp3_duration(file_path)
+        return float(duration) if duration is not None else 0.0
+
     # ------------------------------------------------------------- lookups
     def get_audio_for_script(self, script_id: int) -> Sequence[GeneratedAudio]:
         return self.voice_repo.get_audio_by_script(script_id)
