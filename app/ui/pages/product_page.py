@@ -250,7 +250,7 @@ class ProductFormDialog(QDialog):
 
         image_row = QHBoxLayout()
         self._image_input = QLineEdit()
-        self._image_input.setPlaceholderText("Ảnh sản phẩm / banner (jpg, png) — hiển thị trong OBS khi chưa có video")
+        self._image_input.setPlaceholderText("Ảnh sản phẩm toàn cảnh (jpg, png) — đặt trên bàn/kệ bối cảnh")
         image_row.addWidget(self._image_input, 1)
         browse_img = QPushButton("📂")
         browse_img.setFixedWidth(40)
@@ -258,6 +258,17 @@ class ProductFormDialog(QDialog):
         browse_img.clicked.connect(self._browse_image)
         image_row.addWidget(browse_img)
         form.addRow("Ảnh sản phẩm:", image_row)
+
+        closeup_row = QHBoxLayout()
+        self._video_input = QLineEdit()
+        self._video_input.setPlaceholderText("Ảnh/video cận cảnh (nhãn, chất liệu, test sản phẩm) — dùng cho góc quay CLOSEUP_PRODUCT")
+        closeup_row.addWidget(self._video_input, 1)
+        browse_video = QPushButton("📂")
+        browse_video.setFixedWidth(40)
+        browse_video.setToolTip("Chọn file ảnh/video cận cảnh")
+        browse_video.clicked.connect(self._browse_video)
+        closeup_row.addWidget(browse_video)
+        form.addRow("Ảnh/Clip cận cảnh:", closeup_row)
 
         self._active_checkbox = QCheckBox("Sản phẩm đang hoạt động")
         self._active_checkbox.setChecked(True)
@@ -300,12 +311,23 @@ class ProductFormDialog(QDialog):
         self._warnings_input.setText(d.get("warnings", "") or "")
         self._url_input.setText(d.get("product_url", "") or "")
         self._image_input.setText(d.get("image_path", "") or "")
+        self._video_input.setText(d.get("video_path", "") or "")
         self._active_checkbox.setChecked(d.get("is_active", True))
 
     def _browse_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Chọn ảnh sản phẩm", "", "Ảnh (*.jpg *.jpeg *.png *.webp *.bmp);;Tất cả (*)")
         if path:
             self._image_input.setText(path)
+
+    def _browse_video(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn ảnh hoặc clip cận cảnh sản phẩm",
+            "",
+            "Media (*.mp4 *.mov *.avi *.mkv *.jpg *.jpeg *.png *.webp);;Tất cả (*)",
+        )
+        if path:
+            self._video_input.setText(path)
 
     def _on_ai_autofill(self) -> None:
         name = self._name_input.text().strip()
@@ -457,6 +479,7 @@ class ProductFormDialog(QDialog):
             "warnings": self._warnings_input.text().strip() or None,
             "product_url": self._url_input.text().strip() or None,
             "image_path": self._image_input.text().strip() or None,
+            "video_path": self._video_input.text().strip() or None,
             "is_active": self._active_checkbox.isChecked(),
         }
 

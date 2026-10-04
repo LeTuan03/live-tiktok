@@ -32,6 +32,7 @@ from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.live_studio_page import LiveStudioPage
 from app.ui.pages.media_page import MediaPage
 from app.ui.pages.product_page import ProductPage
+from app.ui.pages.scene_set_page import SceneSetPage
 from app.ui.pages.scheduler_page import SchedulerPage
 from app.ui.pages.script_page import ScriptPage
 from app.ui.pages.settings_page import SettingsPage
@@ -43,6 +44,7 @@ NAV_ITEMS = [
     ("🏠", "Bảng điều khiển"),
     ("📦", "Sản phẩm"),
     ("💃", "Người mẫu AI"),
+    ("🎬", "Bối cảnh Review"),
     ("🎥", "Thư viện Media"),
     ("📝", "Script Studio"),
     ("🔊", "Voice Studio"),
@@ -141,6 +143,7 @@ class MainWindow(QMainWindow):
         self._dashboard_page = DashboardPage()
         self._product_page = ProductPage()
         self._avatar_page = AvatarPage()
+        self._scene_set_page = SceneSetPage()
         self._media_page = MediaPage()
         self._script_page = ScriptPage()
         self._voice_page = VoicePage()
@@ -150,7 +153,7 @@ class MainWindow(QMainWindow):
         self._settings_page = SettingsPage()
 
         for page in (
-            self._dashboard_page, self._product_page, self._avatar_page, self._media_page, self._script_page, self._voice_page,
+            self._dashboard_page, self._product_page, self._avatar_page, self._scene_set_page, self._media_page, self._script_page, self._voice_page,
             self._live_page, self._scheduler_page, self._comment_page, self._settings_page,
         ):
             self._content_stack.addWidget(page)

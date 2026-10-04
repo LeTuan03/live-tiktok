@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -22,6 +23,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -37,11 +40,22 @@ from app.database.repositories.voice_repo import VoiceRepository
 from app.database.session import get_session
 from app.integrations.llm.base import BaseLLMProvider
 from app.integrations.llm.factory import get_llm_provider
+from app.render.compositor import VideoCompositor
+from app.render.queue import RenderQueue
+from app.render.worker import RenderWorker
 from app.services.product_extractor_service import ProductExtractorService
 from app.services.product_service import ProductService
+from app.services.script_segment_service import (
+    VALID_CUES,
+    VALID_SHOTS,
+    ScriptSegment,
+    StructuredScript,
+    parse_and_validate_script_json,
+)
 from app.services.script_service import ScriptService
 from app.services.settings_service import SettingsService
 from app.services.voice_service import VoiceService
+from app.sets.library import SceneSetLibrary
 from app.ui.styles.dark_theme import COLORS
 
 
@@ -231,29 +245,48 @@ class ImproveScriptWorker(QThread):
 class TTSWorker(QThread):
     """Worker thread for generating TTS audio from script."""
 
-    finished = Signal(object, str)  # (GeneratedAudio, error_message)
+    finished = Signal(object, object, str)  # (GeneratedAudio, Optional[StructuredScript], error_message)
 
-    def __init__(self, voice_service: VoiceService, script_id: int, text: str) -> None:
+    def __init__(
+        self,
+        voice_service: VoiceService,
+        script_id: int,
+        text: str,
+        structured_script: Optional[StructuredScript] = None,
+    ) -> None:
         super().__init__()
         self.voice_service = voice_service
         self.script_id = script_id
         self.text = text
+        self.structured_script = structured_script
 
     def run(self) -> None:
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            audio = loop.run_until_complete(
-                self.voice_service.generate_speech(
-                    script_id=self.script_id,
-                    text=self.text,
+            if self.structured_script and self.structured_script.segments:
+                audio, updated = loop.run_until_complete(
+                    self.voice_service.synthesize_structured_script(
+                        script_id=self.script_id,
+                        structured_script=self.structured_script,
+                        force_regenerate=True,
+                    )
                 )
-            )
+            else:
+                audio = loop.run_until_complete(
+                    self.voice_service.generate_speech(
+                        script_id=self.script_id,
+                        text=self.text,
+                        force_regenerate=True,
+                    )
+                )
+                updated = None
             loop.close()
-            self.finished.emit(audio, "")
+            self.finished.emit(audio, updated, "")
         except Exception as e:
             logger.exception("Lỗi khi tạo file TTS audio")
-            self.finished.emit(None, str(e))
+            self.finished.emit(None, None, str(e))
+
 
 
 class ScriptPage(QWidget):
@@ -612,6 +645,13 @@ class ScriptPage(QWidget):
         self.tts_btn.clicked.connect(self._generate_tts_audio)
         editor_top.addWidget(self.tts_btn)
 
+        self.render_btn = QPushButton("🎬 Dựng Video (P3)")
+        self.render_btn.setObjectName("primaryButton")
+        self.render_btn.setStyleSheet(f"background-color: {COLORS['accent_primary']}; font-weight: bold;")
+        self.render_btn.setToolTip("Dựng video review 1080×1920 hoàn chỉnh kết hợp bối cảnh studio, sản phẩm và banner giá")
+        self.render_btn.clicked.connect(self._start_video_render)
+        editor_top.addWidget(self.render_btn)
+
         right_layout.addLayout(editor_top)
 
         # AI Quick Rewrite Toolbar
@@ -645,7 +685,50 @@ class ScriptPage(QWidget):
         ai_tools_bar.addStretch()
         right_layout.addLayout(ai_tools_bar)
 
-        # Editor
+        # Segmented Editor with Tabs
+        self.editor_tabs = QTabWidget()
+
+        # Tab 1: Segment Table (Phân đoạn Review)
+        tab_segments = QWidget()
+        tab_seg_layout = QVBoxLayout(tab_segments)
+        tab_seg_layout.setContentsMargins(4, 8, 4, 4)
+        tab_seg_layout.setSpacing(6)
+
+        table_toolbar = QHBoxLayout()
+        table_hint = QLabel("💡 Mỗi đoạn kịch bản tương ứng 1 góc máy (shot) và 1 cử chỉ người mẫu (cue).")
+        table_hint.setObjectName("hintLabel")
+        table_toolbar.addWidget(table_hint)
+        table_toolbar.addStretch()
+
+        self.add_seg_btn = QPushButton("➕ Thêm đoạn")
+        self.add_seg_btn.clicked.connect(self._add_segment_row)
+        table_toolbar.addWidget(self.add_seg_btn)
+
+        self.del_seg_btn = QPushButton("➖ Xóa đoạn")
+        self.del_seg_btn.clicked.connect(self._remove_selected_segment_row)
+        table_toolbar.addWidget(self.del_seg_btn)
+
+        tab_seg_layout.addLayout(table_toolbar)
+
+        self.segment_table = QTableWidget()
+        self.segment_table.setColumnCount(5)
+        self.segment_table.setHorizontalHeaderLabels([
+            "#",
+            "Lời thoại streamer (TTS)",
+            "Cử chỉ mẫu (Cue)",
+            "Góc máy quay (Shot)",
+            "Giây",
+        ])
+        self.segment_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.segment_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.segment_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.segment_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.segment_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        tab_seg_layout.addWidget(self.segment_table, 1)
+
+        self.editor_tabs.addTab(tab_segments, "📋 Phân Đoạn Review (Cue & Shot)")
+
+        # Tab 2: Plain Text Editor
         self.script_edit = QTextEdit()
         self.script_edit.setPlaceholderText(
             "Nội dung kịch bản livestream sẽ hiển thị tại đây...\n"
@@ -659,7 +742,10 @@ class ScriptPage(QWidget):
             f"color: {COLORS['text_primary']}; border: 1px solid {COLORS['border']}; border-radius: 6px; padding: 10px;"
         )
         self.script_edit.textChanged.connect(self._update_script_stats)
-        right_layout.addWidget(self.script_edit, 1)
+        self.editor_tabs.addTab(self.script_edit, "📝 Toàn Bộ Lời Thoại")
+
+        self.editor_tabs.currentChanged.connect(self._on_editor_tab_changed)
+        right_layout.addWidget(self.editor_tabs, 1)
 
         # Footer Status & Stats
         footer_layout = QHBoxLayout()
@@ -816,7 +902,7 @@ class ScriptPage(QWidget):
         scripts = self.script_service.get_scripts_by_product(product_id)
         if scripts:
             self.current_script = scripts[0]
-            self.script_edit.setText(self.current_script.content)
+            self._display_script_content(self.current_script.content)
             self.script_title_edit.setText(self.current_script.title)
 
             for s in scripts:
@@ -833,8 +919,121 @@ class ScriptPage(QWidget):
         script = item.data(Qt.ItemDataRole.UserRole)
         if script:
             self.current_script = script
-            self.script_edit.setText(script.content)
+            self._display_script_content(script.content)
             self.script_title_edit.setText(script.title)
+
+    def _display_script_content(self, raw_content: str) -> None:
+        """Parse structured script and populate both segment table and plain text view."""
+        structured = parse_and_validate_script_json(raw_content)
+        self._populate_segment_table(structured)
+        self.script_edit.blockSignals(True)
+        self.script_edit.setText(structured.total_text)
+        self.script_edit.blockSignals(False)
+        self._update_script_stats()
+
+    def _populate_segment_table(self, structured: StructuredScript) -> None:
+        self.segment_table.setRowCount(0)
+        cues_list = sorted(list(VALID_CUES))
+        shots_list = sorted(list(VALID_SHOTS))
+
+        for row_idx, seg in enumerate(structured.segments):
+            self.segment_table.insertRow(row_idx)
+
+            # Col 0: #
+            num_item = QTableWidgetItem(str(row_idx + 1))
+            num_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            num_item.setFlags(num_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.segment_table.setItem(row_idx, 0, num_item)
+
+            # Col 1: Text
+            text_item = QTableWidgetItem(seg.text)
+            self.segment_table.setItem(row_idx, 1, text_item)
+
+            # Col 2: Cue
+            cue_combo = QComboBox()
+            cue_combo.addItems(cues_list)
+            c_idx = cue_combo.findText(seg.cue)
+            if c_idx >= 0:
+                cue_combo.setCurrentIndex(c_idx)
+            self.segment_table.setCellWidget(row_idx, 2, cue_combo)
+
+            # Col 3: Shot
+            shot_combo = QComboBox()
+            shot_combo.addItems(shots_list)
+            s_idx = shot_combo.findText(seg.shot)
+            if s_idx >= 0:
+                shot_combo.setCurrentIndex(s_idx)
+            self.segment_table.setCellWidget(row_idx, 3, shot_combo)
+
+            # Col 4: Duration
+            dur_item = QTableWidgetItem(f"{seg.duration_seconds:.1f}s" if seg.duration_seconds else "—")
+            dur_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.segment_table.setItem(row_idx, 4, dur_item)
+
+    def _extract_segments_from_table(self) -> StructuredScript:
+        segments: list[ScriptSegment] = []
+        for r in range(self.segment_table.rowCount()):
+            text_item = self.segment_table.item(r, 1)
+            text = text_item.text().strip() if text_item else ""
+            if not text:
+                continue
+
+            cue_widget = self.segment_table.cellWidget(r, 2)
+            cue = cue_widget.currentText() if isinstance(cue_widget, QComboBox) else "IDLE_TALK"
+
+            shot_widget = self.segment_table.cellWidget(r, 3)
+            shot = shot_widget.currentText() if isinstance(shot_widget, QComboBox) else "MEDIUM_MODEL"
+
+            segments.append(
+                ScriptSegment(
+                    text=text,
+                    cue=cue,
+                    shot=shot,
+                )
+            )
+        return StructuredScript(segments=segments)
+
+    def _add_segment_row(self) -> None:
+        r = self.segment_table.rowCount()
+        self.segment_table.insertRow(r)
+        num_item = QTableWidgetItem(str(r + 1))
+        num_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        num_item.setFlags(num_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.segment_table.setItem(r, 0, num_item)
+
+        self.segment_table.setItem(r, 1, QTableWidgetItem("Nội dung đoạn giới thiệu mới..."))
+
+        cue_combo = QComboBox()
+        cue_combo.addItems(sorted(list(VALID_CUES)))
+        self.segment_table.setCellWidget(r, 2, cue_combo)
+
+        shot_combo = QComboBox()
+        shot_combo.addItems(sorted(list(VALID_SHOTS)))
+        self.segment_table.setCellWidget(r, 3, shot_combo)
+
+        dur_item = QTableWidgetItem("—")
+        dur_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.segment_table.setItem(r, 4, dur_item)
+
+    def _remove_selected_segment_row(self) -> None:
+        row = self.segment_table.currentRow()
+        if row >= 0:
+            self.segment_table.removeRow(row)
+
+    def _on_editor_tab_changed(self, index: int) -> None:
+        if index == 1:
+            # Switched to plain text: sync from table
+            structured = self._extract_segments_from_table()
+            if structured.segments:
+                self.script_edit.blockSignals(True)
+                self.script_edit.setText(structured.total_text)
+                self.script_edit.blockSignals(False)
+                self._update_script_stats()
+        elif index == 0:
+            # Switched to table: if table is empty but plain text exists, populate table
+            if self.segment_table.rowCount() == 0 and self.script_edit.toPlainText().strip():
+                structured = parse_and_validate_script_json(self.script_edit.toPlainText().strip())
+                self._populate_segment_table(structured)
 
     def _update_script_stats(self) -> None:
         text = self.script_edit.toPlainText().strip()
@@ -1040,7 +1239,7 @@ class ScriptPage(QWidget):
 
         self.current_script = script
         self.script_title_edit.setText(script.title)
-        self.script_edit.setText(script.content)
+        self._display_script_content(script.content)
 
         self.refresh_products()
         if script.product_id:
@@ -1101,7 +1300,7 @@ class ScriptPage(QWidget):
             QMessageBox.warning(self, "Thông báo", f"Lỗi khi viết lại kịch bản: {error}")
             return
 
-        self.script_edit.setText(new_text)
+        self._display_script_content(new_text)
         QMessageBox.information(self, "Thành công", "✨ Đã tinh chỉnh và viết lại kịch bản thành công!")
 
     # -------------------------------------------------------------------------
@@ -1110,7 +1309,9 @@ class ScriptPage(QWidget):
     def _new_manual_script(self) -> None:
         self.current_script = None
         self.script_title_edit.setText("Kịch bản mới (Tự viết tay)")
+        self.segment_table.setRowCount(0)
         self.script_edit.clear()
+        self._add_segment_row()
         self.script_edit.setFocus()
 
     def _copy_to_clipboard(self) -> None:
@@ -1122,7 +1323,12 @@ class ScriptPage(QWidget):
         QMessageBox.information(self, "Đã sao chép", "Đã sao chép kịch bản vào bộ nhớ tạm (Clipboard)!")
 
     def _save_script(self) -> None:
-        content = self.script_edit.toPlainText().strip()
+        if self.segment_table.rowCount() > 0:
+            structured = self._extract_segments_from_table()
+            content = structured.to_json()
+        else:
+            content = self.script_edit.toPlainText().strip()
+
         if not content:
             QMessageBox.warning(self, "Cảnh báo", "Nội dung kịch bản không được để trống!")
             return
@@ -1173,9 +1379,14 @@ class ScriptPage(QWidget):
             QMessageBox.information(self, "Thành công", "Đã lưu sản phẩm và kịch bản mới thành công!")
 
     def _generate_tts_audio(self) -> None:
-        content = self.script_edit.toPlainText().strip()
-        if not content or not self.current_script:
+        if not self.current_script:
             QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn hoặc lưu kịch bản trước khi tạo audio!")
+            return
+
+        structured = self._extract_segments_from_table() if self.segment_table.rowCount() > 0 else None
+        content = self.script_edit.toPlainText().strip()
+        if not content and (not structured or not structured.segments):
+            QMessageBox.warning(self, "Cảnh báo", "Nội dung kịch bản không được để trống!")
             return
 
         self.tts_btn.setEnabled(False)
@@ -1185,20 +1396,143 @@ class ScriptPage(QWidget):
             voice_service=self.voice_service,
             script_id=self.current_script.id,
             text=content,
+            structured_script=structured,
         )
         self.tts_worker.finished.connect(self._on_tts_generated)
         self.tts_worker.start()
 
-    def _on_tts_generated(self, audio: Optional[object], error: str) -> None:
+    def _on_tts_generated(self, audio: Optional[object], updated_struct: Optional[StructuredScript], error: str) -> None:
         self.tts_btn.setEnabled(True)
         if error or not audio:
             self.audio_status_label.setText(f"❌ Lỗi tạo audio: {error}")
             QMessageBox.warning(self, "Lỗi TTS", f"Không thể tạo âm thanh: {error}")
         else:
+            if updated_struct:
+                self._populate_segment_table(updated_struct)
+                try:
+                    self.script_service.update_script(
+                        script_id=self.current_script.id,
+                        content=updated_struct.to_json(),
+                        title=self.script_title_edit.text().strip() or self.current_script.title,
+                        note="Cập nhật thời lượng âm thanh thật từng segment",
+                    )
+                except Exception as e:
+                    logger.debug("Lỗi lưu lại kịch bản sau khi TTS: {}", e)
+
             path = getattr(audio, "file_path", "")
             dur = getattr(audio, "duration_seconds", None)
-            self.audio_status_label.setText(f"✅ Audio sẵn sàng ({dur:.0f}s): {path}" if dur else f"✅ Audio sẵn sàng: {path}")
+            self.audio_status_label.setText(f"✅ Audio sẵn sàng ({dur:.1f}s): {path}" if dur else f"✅ Audio sẵn sàng: {path}")
             from app.services.activity_log_service import log_activity
 
             log_activity("tts", "Tạo audio TTS cho kịch bản", self.script_title_edit.text()[:100])
             QMessageBox.information(self, "Thành công", f"Đã tạo audio TTS. Sản phẩm này đã sẵn sàng để đưa vào playlist.\n\n{path}")
+
+    # -------------------------------------------------------------------------
+    # VIDEO COMPOSITING (P3)
+    # -------------------------------------------------------------------------
+    def _start_video_render(self) -> None:
+        if not self.current_script:
+            QMessageBox.warning(self, "Cảnh báo", "Vui lòng chọn hoặc lưu kịch bản trước khi dựng video!")
+            return
+
+        latest_audio = self.voice_service.get_latest_audio_for_script(self.current_script.id)
+        if not latest_audio or not latest_audio.file_path or not os.path.exists(latest_audio.file_path):
+            QMessageBox.warning(
+                self,
+                "Chưa có file âm thanh",
+                "Kịch bản này chưa có file âm thanh TTS.\n\nVui lòng bấm '🔊 Tạo âm thanh TTS' trước khi dựng video!",
+            )
+            return
+
+        product = self.current_product
+        structured = parse_and_validate_script_json(self.current_script.content)
+        scene_set = SceneSetLibrary().get_set_or_default(structured.set_id)
+
+        # Output video path
+        output_dir = Path("storage/rendered_videos")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_title = "".join(c for c in (self.current_script.title or "review") if c.isalnum() or c in ("-", "_")).strip()
+        out_mp4 = output_dir / f"review_prod_{product.id if product else 'custom'}_{safe_title[:20]}.mp4"
+
+        # Generate banner overlay if product has price
+        banner_path = None
+        if product and (product.price or product.promo_price):
+            from app.render.banner import BannerGenerator
+            banner_gen = BannerGenerator()
+            b_path = output_dir / f"banner_{product.id}.png"
+            try:
+                banner_gen.generate_product_banner(
+                    output_path=b_path,
+                    title=product.name,
+                    price=product.price or 0,
+                    promo_price=product.promo_price,
+                )
+                banner_path = str(b_path)
+            except Exception as e:
+                logger.debug("Không thể tạo banner: {}", e)
+
+        # Plan review rhythm cuts
+        from app.render.shot_planner import ShotPlanner
+        has_closeup = bool(product and product.video_path and os.path.exists(product.video_path))
+        shot_plan = ShotPlanner().plan_shots(structured, has_closeup_asset=has_closeup)
+
+        # Find approved presenter clip if avatar assigned
+        presenter_clip = None
+        if product and product.avatar_id:
+            from app.presenter.clip_library import PresenterClipLibrary
+            p_clip = PresenterClipLibrary().get_clip_for_cue(product.avatar_id, "IDLE_TALK", product_id=product.id, require_approved=False)
+            if p_clip and Path(p_clip.file_path).exists():
+                presenter_clip = p_clip.file_path
+
+        queue = RenderQueue.get_instance()
+        job = queue.create_job(
+            output_mp4=out_mp4,
+            scene_set=scene_set,
+            audio_path=latest_audio.file_path,
+            product_id=product.id if product else None,
+            product_name=product.name if product else "Sản phẩm",
+            product_image=product.image_path if (product and product.image_path) else None,
+            closeup_media=product.video_path if (product and product.video_path) else None,
+            banner_path=banner_path,
+            presenter_clip=presenter_clip,
+            shot_plan=shot_plan,
+            duration_seconds=latest_audio.duration_seconds,
+        )
+
+        self.render_btn.setEnabled(False)
+        self.audio_status_label.setText("⏳ Đang render video review 1080×1920: 10% (Chuẩn bị bối cảnh...)")
+
+        self.render_worker = RenderWorker(job)
+        self.render_worker.progress_updated.connect(self._on_render_progress)
+        self.render_worker.job_finished.connect(self._on_render_finished)
+        self.render_worker.start()
+
+    def _on_render_progress(self, job_id: str, percent: int, msg: str) -> None:
+        self.audio_status_label.setText(f"⏳ Đang render video review: {percent}% ({msg})")
+
+    def _on_render_finished(self, job: Any, success: bool, error: str) -> None:
+        self.render_btn.setEnabled(True)
+        if success:
+            out_file = job.output_mp4
+            self.audio_status_label.setText(f"🎬 Video review đã render xong: {out_file}")
+            if self.current_product and not self.current_product.video_path:
+                try:
+                    self.product_repo.update(self.current_product.id, {"video_path": str(out_file)})
+                    self.current_product.video_path = str(out_file)
+                except Exception as e:
+                    logger.debug("Không thể tự gán video_path vào sản phẩm: {}", e)
+
+            from app.services.activity_log_service import log_activity
+            log_activity("render", "Render video review sản phẩm 1080x1920", getattr(job, "product_name", ""))
+            QMessageBox.information(
+                self,
+                "Dựng Video Thành Công",
+                f"🎉 Đã render xong video review chuẩn 1080×1920 30fps!\n\n"
+                f"Bối cảnh: {job.scene_set.name if job.scene_set else 'Studio'}\n"
+                f"Đường dẫn: {out_file}\n\n"
+                "Video đã sẵn sàng để phát sóng trên TikTok/Shopee LIVE!",
+            )
+        else:
+            self.audio_status_label.setText(f"❌ Lỗi render video: {error}")
+            QMessageBox.warning(self, "Lỗi Render Video", f"Không thể render video: {error}")
+

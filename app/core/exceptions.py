@@ -79,6 +79,14 @@ class AIContentPolicyError(AIError):
     """AI generated content that violates policies (unverified claims, etc.)."""
 
 
+class AIAvatarError(AIError):
+    """AI Avatar generation or lip-sync error."""
+
+
+class AudioRenderError(LiveFlowError):
+    """Audio or video rendering/compositing error."""
+
+
 # --- TTS ---
 class TTSError(LiveFlowError):
     """Text-to-Speech errors."""

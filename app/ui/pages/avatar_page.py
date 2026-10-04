@@ -420,13 +420,19 @@ class AvatarPage(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(6)
 
-        obs_btn = QPushButton("🔴 Thử Lên OBS")
+        clips_btn = QPushButton("🎬 Cử chỉ & Duyệt (9 Cues)")
+        clips_btn.setToolTip("Quản lý 9 video cử chỉ và phê duyệt clip cho người mẫu này")
+        clips_btn.clicked.connect(lambda _, av=avatar: self._on_manage_clips(av))
+        btn_layout.addWidget(clips_btn)
+
+        obs_btn = QPushButton("🔴 OBS")
         obs_btn.setObjectName("dangerButton")
         obs_btn.setToolTip("Gửi Người Mẫu AI này lên màn hình OBS Studio")
         obs_btn.clicked.connect(lambda _, av=avatar: self._send_to_obs(av))
         btn_layout.addWidget(obs_btn)
 
-        edit_btn = QPushButton("✏️ Sửa")
+        edit_btn = QPushButton("✏️")
+        edit_btn.setToolTip("Sửa thông tin")
         edit_btn.clicked.connect(lambda _, av=avatar: self._on_edit_avatar(av))
         btn_layout.addWidget(edit_btn)
 
@@ -437,6 +443,11 @@ class AvatarPage(QWidget):
 
         card_layout.addLayout(btn_layout)
         return card
+
+    def _on_manage_clips(self, avatar: AIAvatar) -> None:
+        from app.ui.dialogs.clip_library_dialog import ClipLibraryDialog
+        dlg = ClipLibraryDialog(avatar, self)
+        dlg.exec()
 
     def _on_add_avatar(self) -> None:
         dlg = AvatarFormDialog(self)

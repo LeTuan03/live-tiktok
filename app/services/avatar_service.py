@@ -133,7 +133,12 @@ class AvatarService:
             logger.exception("Lỗi khi khởi tạo Người Mẫu AI mẫu: {}", e)
 
     def _generate_avatar_art(self, name: str, bg_hex: str, initial: str) -> str:
-        """Create a premium 2D avatar portrait image if no asset file is provided."""
+        """Create a placeholder indicator image — NOT a usable avatar.
+
+        Bug #2 fix: previous version drew geometric shapes that looked terrible
+        on stream. This now creates a clearly-labeled placeholder that won't
+        be mistaken for a real presenter.
+        """
         filename = f"avatar_{initial.lower()}_{abs(hash(name)) % 10000}.png"
         out_path = self.avatar_dir / filename
         if out_path.exists():
@@ -143,8 +148,8 @@ class AvatarService:
             from PIL import Image, ImageDraw
 
             width, height = 400, 600
-            # Green screen canvas for chroma key testing
-            img = Image.new("RGBA", (width, height), (0, 255, 0, 255))
+            # Gray background — NOT green screen, to make it obvious this is a placeholder
+            img = Image.new("RGBA", (width, height), (60, 60, 60, 255))
             draw = ImageDraw.Draw(img)
 
             # Hex to RGB helper
@@ -154,19 +159,14 @@ class AvatarService:
             else:
                 bg_rgb = (108, 92, 231)
 
-            # Rounded card
-            draw.rounded_rectangle([40, 60, 360, 540], radius=24, fill=bg_rgb)
-
-            # Head / silhouette (white circle)
-            draw.ellipse([130, 110, 270, 250], fill=(255, 255, 255, 230))
-
-            # Body / shoulders
-            draw.chord([80, 230, 320, 470], start=0, end=180, fill=(255, 255, 255, 180))
-
-            # Initials badge and label
+            # Draw a camera icon placeholder instead of fake person
+            draw.rounded_rectangle([40, 60, 360, 540], radius=24, fill=(80, 80, 80))
+            draw.text((200, 200), "📷", anchor="mm")
+            draw.text((200, 300), "PLACEHOLDER", fill=(200, 200, 200), anchor="mm")
             short_name = name.split("—")[0].strip()
-            draw.text((200, 180), initial, fill=bg_rgb, anchor="mm")
-            draw.text((200, 500), f"AI {short_name}", fill=(255, 255, 255, 255), anchor="mm")
+            draw.text((200, 340), f"{short_name}", fill=(150, 150, 150), anchor="mm")
+            draw.text((200, 420), "Thêm clip thật", fill=bg_rgb, anchor="mm")
+            draw.text((200, 450), "để sử dụng", fill=bg_rgb, anchor="mm")
 
             img.save(str(out_path))
             return str(out_path)
@@ -308,57 +308,17 @@ class AvatarService:
         audio_path: str,
         script_text: str,
     ) -> Tuple[Optional[str], str]:
-        """D-ID Talks API integration."""
-        try:
-            import httpx
+        """D-ID Talks API integration — DISABLED pending rewrite.
 
-            url = "https://api.d-id.com/talks"
-            headers = {
-                "Authorization": f"Basic {api_key}",
-                "Content-Type": "application/json",
-            }
-            # Use avatar image
-            source_url = avatar.preview_image_path or avatar.media_path or ""
-            payload = {
-                "script": {
-                    "type": "text",
-                    "input": script_text,
-                    "provider": {
-                        "type": "microsoft",
-                        "voice_id": avatar.voice_id or "vi-VN-HoaiMyNeural",
-                    },
-                },
-                "config": {"fluent": True, "pad_audio": 0.0},
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                res = await client.post(url, json=payload, headers=headers)
-                if res.status_code not in (200, 201):
-                    return None, f"D-ID API Error ({res.status_code}): {res.text}"
-                data = res.json()
-                talk_id = data.get("id")
-
-                # Poll for completion
-                for _ in range(30):
-                    await asyncio.sleep(2.0)
-                    poll = await client.get(f"{url}/{talk_id}", headers=headers)
-                    if poll.status_code == 200:
-                        p_data = poll.json()
-                        status = p_data.get("status")
-                        if status == "done":
-                            result_url = p_data.get("result_url")
-                            # Download to media directory
-                            dest = self.settings.effective_media_dir / f"did_avatar_{talk_id}.mp4"
-                            vid_res = await client.get(result_url)
-                            dest.write_bytes(vid_res.content)
-                            return str(dest), "Tạo video D-ID thành công!"
-                        elif status == "error":
-                            return None, f"D-ID render failed: {p_data.get('error')}"
-
-                return None, "D-ID render timed out sau 60s."
-        except Exception as e:
-            logger.exception("D-ID generation error: {}", e)
-            return None, f"Lỗi gọi D-ID API: {e}"
+        Bug #13: source_url was computed but never included in payload.
+        Bug #13b: D-ID requires a public URL, not a local file path.
+        This provider will be rewritten in P3 with proper API handling.
+        """
+        return None, (
+            "D-ID tạm thời bị vô hiệu hoá. "
+            "Lý do: API integration chưa hoàn chỉnh (thiếu source_url trong payload, "
+            "không hỗ trợ file local). Sẽ được viết lại trong giai đoạn P3."
+        )
 
     async def _generate_heygen_video(
         self,
@@ -366,42 +326,17 @@ class AvatarService:
         avatar: AIAvatar,
         script_text: str,
     ) -> Tuple[Optional[str], str]:
-        """HeyGen video generation integration."""
-        try:
-            import httpx
+        """HeyGen video generation — DISABLED pending rewrite.
 
-            url = "https://api.heygen.com/v2/video/generate"
-            headers = {
-                "X-Api-Key": api_key,
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "video_inputs": [
-                    {
-                        "character": {
-                            "type": "avatar",
-                            "avatar_id": "default",
-                            "avatar_style": "normal",
-                        },
-                        "voice": {
-                            "type": "text",
-                            "input_text": script_text,
-                            "voice_id": avatar.voice_id or "vi-VN-HoaiMyNeural",
-                        },
-                    }
-                ],
-                "dimension": {"width": 1080, "height": 1920},
-            }
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                res = await client.post(url, json=payload, headers=headers)
-                if res.status_code not in (200, 201):
-                    return None, f"HeyGen API Error ({res.status_code}): {res.text}"
-                data = res.json()
-                video_id = data.get("data", {}).get("video_id")
-                return None, f"HeyGen video submitted (ID: {video_id})."
-        except Exception as e:
-            return None, f"Lỗi gọi HeyGen API: {e}"
+        Bug #14: original code submitted the job but never polled for completion
+        or downloaded the result. Also used invalid avatar_id 'default'.
+        This provider will be rewritten in P3 with proper polling and download.
+        """
+        return None, (
+            "HeyGen tạm thời bị vô hiệu hoá. "
+            "Lý do: API integration chưa hoàn chỉnh (không poll kết quả, không tải video về, "
+            "avatar_id không hợp lệ). Sẽ được viết lại trong giai đoạn P3."
+        )
 
     async def _generate_composite_video(
         self,

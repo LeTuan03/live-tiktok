@@ -276,6 +276,195 @@ class OBSClient:
             logger.error("Lỗi lấy danh sách input OBS: {}", e)
             return []
 
+    def get_video_settings(self) -> dict[str, Any]:
+        """Fetch current OBS canvas and video settings."""
+        if not self.is_connected:
+            return {}
+        try:
+            res = self._call("get_video_settings")
+            num = int(getattr(res, "fps_numerator", 30) or 30)
+            den = int(getattr(res, "fps_denominator", 1) or 1)
+            fps = float(num) / float(den) if den > 0 else 30.0
+            return {
+                "base_width": int(getattr(res, "base_width", 0) or 0),
+                "base_height": int(getattr(res, "base_height", 0) or 0),
+                "output_width": int(getattr(res, "output_width", 0) or 0),
+                "output_height": int(getattr(res, "output_height", 0) or 0),
+                "fps_numerator": num,
+                "fps_denominator": den,
+                "fps": round(fps, 2),
+            }
+        except Exception as e:
+            logger.error("Lỗi lấy video settings từ OBS: {}", e)
+            return {}
+
+    def set_video_settings(
+        self,
+        base_width: int = 1080,
+        base_height: int = 1920,
+        out_width: int = 1080,
+        out_height: int = 1920,
+        fps_num: int = 30,
+        fps_den: int = 1,
+    ) -> tuple[bool, str]:
+        """Enforce canvas resolution (default 1080x1920 vertical) and framerate (30fps).
+
+        Verifies the change immediately with a round-trip check.
+        Note: OBS does not allow changing video settings while output/streaming is active.
+        """
+        if not self.is_connected:
+            return False, "Chưa kết nối OBS Studio."
+        if self.is_streaming():
+            return False, "Không thể đổi kích thước canvas khi OBS đang phát trực tiếp."
+
+        try:
+            self._call(
+                "set_video_settings",
+                fps_num,
+                fps_den,
+                base_width,
+                base_height,
+                out_width,
+                out_height,
+            )
+            # Round-trip verification
+            verified = self.get_video_settings()
+            if (
+                verified.get("base_width") == base_width
+                and verified.get("base_height") == base_height
+            ):
+                msg = f"Đã chuẩn hoá canvas OBS: {base_width}×{base_height} @ {fps_num}/{fps_den}fps."
+                logger.info(msg)
+                return True, msg
+            else:
+                return (
+                    False,
+                    f"OBS từ chối áp dụng canvas {base_width}×{base_height}. Hiện tại là {verified.get('base_width')}×{verified.get('base_height')}.",
+                )
+        except Exception as e:
+            err = self._friendly_error(e)
+            logger.error("Lỗi cập nhật video settings OBS: {}", err)
+            return False, f"Không thể cập nhật canvas OBS: {err}"
+
+    def get_scene_item_list(self, scene_name: str) -> list[dict[str, Any]]:
+        """Return list of items in scene with their ID, name, index, and enabled status."""
+        if not self.is_connected:
+            return []
+        try:
+            res = self._call("get_scene_item_list", scene_name)
+            items = getattr(res, "scene_items", []) or []
+            result: list[dict[str, Any]] = []
+            for item in items:
+                if isinstance(item, dict):
+                    result.append({
+                        "id": item.get("sceneItemId"),
+                        "name": item.get("sourceName"),
+                        "index": item.get("sceneItemIndex"),
+                        "enabled": item.get("sceneItemEnabled", True),
+                    })
+                else:
+                    result.append({
+                        "id": getattr(item, "scene_item_id", getattr(item, "sceneItemId", None)),
+                        "name": getattr(item, "source_name", getattr(item, "sourceName", "")),
+                        "index": getattr(item, "scene_item_index", getattr(item, "sceneItemIndex", None)),
+                        "enabled": getattr(item, "scene_item_enabled", getattr(item, "sceneItemEnabled", True)),
+                    })
+            return result
+        except Exception as e:
+            logger.debug("Lỗi lấy scene items từ scene '{}': {}", scene_name, e)
+            return []
+
+    def get_scene_item_id(self, scene_name: str, source_name: str) -> Optional[int]:
+        """Get the numeric sceneItemId for a source in a given scene."""
+        if not self.is_connected:
+            return None
+        try:
+            item = self._call("get_scene_item_id", scene_name, source_name)
+            return getattr(item, "scene_item_id", getattr(item, "sceneItemId", None))
+        except Exception:
+            return None
+
+    def set_scene_item_index(self, scene_name: str, item_id: int, item_index: int) -> bool:
+        """Set z-index order of a scene item (0 is lowest/bottom)."""
+        if not self.is_connected:
+            return False
+        try:
+            self._call("set_scene_item_index", scene_name, item_id, item_index)
+            return True
+        except Exception as e:
+            logger.debug("Lỗi đặt z-index cho item {} trong scene '{}': {}", item_id, scene_name, e)
+            return False
+
+    def get_input_mute(self, source_name: str) -> Optional[bool]:
+        """Check if an audio source is muted."""
+        if not self.is_connected:
+            return None
+        try:
+            res = self._call("get_input_mute", source_name)
+            return bool(getattr(res, "input_muted", False))
+        except Exception as e:
+            logger.debug("Lỗi kiểm tra mute cho '{}': {}", source_name, e)
+            return None
+
+    def set_input_mute(self, source_name: str, muted: bool) -> bool:
+        """Mute or unmute an input."""
+        if not self.is_connected:
+            return False
+        try:
+            self._call("set_input_mute", source_name, muted)
+            return True
+        except Exception as e:
+            logger.debug("Lỗi đặt mute cho '{}': {}", source_name, e)
+            return False
+
+    def get_input_volume(self, source_name: str) -> dict[str, Any]:
+        """Return {'mul': float, 'db': float} volume levels for a source."""
+        if not self.is_connected:
+            return {}
+        try:
+            res = self._call("get_input_volume", source_name)
+            return {
+                "mul": getattr(res, "input_volume_mul", 1.0),
+                "db": getattr(res, "input_volume_db", 0.0),
+            }
+        except Exception as e:
+            logger.debug("Lỗi lấy âm lượng của '{}': {}", source_name, e)
+            return {}
+
+    def get_stream_status_details(self) -> dict[str, Any]:
+        """Return comprehensive streaming health details including dropped frame rate."""
+        if not self.is_connected:
+            return {"active": False, "error": "Chưa kết nối"}
+        try:
+            stream = self._call("get_stream_status")
+            active = bool(getattr(stream, "output_active", False))
+            reconnecting = bool(getattr(stream, "output_reconnecting", False))
+            timecode = str(getattr(stream, "output_timecode", "") or "")
+            duration = int(getattr(stream, "output_duration", 0) or 0)
+            congestion = float(getattr(stream, "output_congestion", 0.0) or 0.0)
+            kbits = int(getattr(stream, "output_kbits_per_sec", 0) or 0)
+            skipped_frames = int(getattr(stream, "output_skipped_frames", 0) or 0)
+            total_frames = int(getattr(stream, "output_total_frames", 0) or 0)
+
+            dropped_pct = 0.0
+            if total_frames > 0:
+                dropped_pct = (skipped_frames / total_frames) * 100.0
+
+            return {
+                "active": active,
+                "reconnecting": reconnecting,
+                "timecode": timecode,
+                "duration_ms": duration,
+                "congestion": congestion,
+                "kbits_per_sec": kbits,
+                "skipped_frames": skipped_frames,
+                "total_frames": total_frames,
+                "dropped_percent": round(dropped_pct, 2),
+                "healthy": dropped_pct < 2.0 and not reconnecting,
+            }
+        except Exception as e:
+            return {"active": False, "error": str(e)}
+
     # ------------------------------------------------------------ commands
     def set_current_scene(self, scene_name: str) -> bool:
         """Switch program scene. False when offline or OBS rejected the request."""

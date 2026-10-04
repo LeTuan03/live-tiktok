@@ -221,6 +221,11 @@ class LiveStudioPage(QWidget):
         rtmp_btns.addWidget(self.guide_btn)
         left_layout.addLayout(rtmp_btns)
 
+        self.preflight_btn = QPushButton("🔍 Kiểm tra an toàn trước LIVE (12 mục Preflight)")
+        self.preflight_btn.setToolTip("Kiểm tra 12 điều kiện kỹ thuật trước khi lên sóng (OBS, canvas, stream key, âm thanh, giá verified, v.v.)")
+        self.preflight_btn.clicked.connect(self._run_preflight_check)
+        left_layout.addWidget(self.preflight_btn)
+
         stream_btns = QHBoxLayout()
         self.start_stream_btn = QPushButton("🔴 Bắt đầu LIVE (OBS Start Streaming)")
         self.start_stream_btn.setObjectName("dangerButton")
@@ -260,8 +265,9 @@ class LiveStudioPage(QWidget):
         audio_row = QHBoxLayout()
         audio_row.addWidget(QLabel("Âm thanh TTS phát qua:"))
         self.audio_mode_combo = QComboBox()
-        self.audio_mode_combo.addItem("Máy tính này (OBS thu 'Desktop Audio')", "local")
-        self.audio_mode_combo.addItem("Media source trong OBS (khuyên dùng khi LIVE)", "obs")
+        # Bug #3 fix: removed "Desktop Audio" option — it caused silent streams
+        # or leaked system sounds. Audio MUST go through OBS media source.
+        self.audio_mode_combo.addItem("Media source trong OBS (âm thanh nhúng trong stream)", "obs")
         audio_row.addWidget(self.audio_mode_combo, 1)
         right_layout.addLayout(audio_row)
 
@@ -501,36 +507,93 @@ class LiveStudioPage(QWidget):
         if not self.obs_client.is_connected:
             QMessageBox.warning(self, "Chưa kết nối", "Hãy kết nối OBS trước.")
             return
+        from app.playout.obs_compositor import OBSCompositor
+        compositor = OBSCompositor(self.obs_client)
+
         scene, video, audio = self.settings_service.get_obs_sources()
         image, text = self.settings_service.get_obs_extra_sources()
-        avatar = self.settings_service.get(KEY_OBS_AVATAR_SOURCE) or "LiveFlow Avatar"
+        avatar = self.settings_service.get(KEY_OBS_AVATAR_SOURCE) or ""
+
         reply = QMessageBox.question(
             self,
-            "Tạo cấu hình LiveFlow trong OBS",
-            f"LiveFlow sẽ tạo (nếu chưa có) trong OBS:\n\n"
-            f"• Scene: {scene}\n"
-            f"• Image source (ảnh sản phẩm): {image}\n"
-            f"• Media source video: {video}\n"
-            f"• Media source Người Mẫu AI: {avatar}\n"
-            f"• Media source audio: {audio}\n"
-            f"• Text overlay (tên + giá): {text}\n\n"
-            "Gợi ý: đặt canvas OBS 1080×1920 (dọc) cho TikTok/Shopee và thêm ảnh nền/banner của bạn phía dưới các nguồn này.\n"
+            "Chuẩn hoá OBS cho Livestream 9:16",
+            "LiveFlow sẽ chuẩn hoá OBS cho TikTok/Shopee LIVE:\n\n"
+            "1. Đặt Canvas 1080×1920 (dọc) @ 30fps và kiểm chứng lại.\n"
+            f"2. Tạo scene chuẩn '{scene or 'LiveFlow Live'}'.\n"
+            f"3. Tạo nguồn phát video '{video or 'LiveFlow Player'}' căn 1080×1920.\n"
+            f"4. Tạo nguồn banner '{image or 'LiveFlow Banner'}' với Z-order chuẩn xác.\n\n"
             "Các scene/nguồn khác của bạn KHÔNG bị thay đổi. Tiếp tục?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        ok, msg = self.obs_client.ensure_liveflow_setup(
-            scene_name=scene,
-            video_source=video,
-            audio_source=audio,
-            image_source=image,
-            text_source=text,
+
+        # 1. Enforce Canvas 1080x1920
+        c_ok, c_msg = compositor.enforce_canvas_format(1080, 1920, 30)
+        self._add_log(("✅ " if c_ok else "⚠️ ") + c_msg)
+
+        # 2. Setup standard scene & deterministic z-order
+        s_ok, s_msg = compositor.setup_standard_scene(
+            scene_name=scene or "LiveFlow Live",
+            player_source=video or "LiveFlow Player",
+            banner_source=image or "LiveFlow Banner",
             avatar_source=avatar,
         )
-        self._add_log(("✅ " if ok else "❌ ") + msg)
-        (QMessageBox.information if ok else QMessageBox.critical)(self, "Cấu hình OBS", msg)
+        self._add_log(("✅ " if s_ok else "❌ ") + s_msg)
+
+        # 3. Verify
+        ver = compositor.verify_composition(
+            scene_name=scene or "LiveFlow Live",
+            player_source=video or "LiveFlow Player",
+            banner_source=image or "LiveFlow Banner",
+        )
+        if ver["valid"]:
+            QMessageBox.information(self, "Cấu hình OBS thành công", f"✅ OBS đã sẵn sàng:\n\n{c_msg}\n{s_msg}")
+        else:
+            err_text = "\n• ".join(ver["errors"])
+            QMessageBox.warning(self, "Cảnh báo cấu hình OBS", f"{s_msg}\n\nLưu ý chưa đạt:\n• {err_text}")
         self._poll_obs_status()
+
+    def _run_preflight_check(self, show_dialog: bool = True):
+        from app.playout.preflight import PreflightChecker
+        checker = PreflightChecker(self.obs_client)
+
+        server = self.rtmp_server_input.text().strip()
+        key = self.rtmp_key_input.text().strip()
+        scene, video, audio = self.settings_service.get_obs_sources()
+        image, _ = self.settings_service.get_obs_extra_sources()
+
+        report = checker.run_full_preflight(
+            scene_name=scene or "LiveFlow Live",
+            player_source=video or "LiveFlow Player",
+            banner_source=image or "LiveFlow Banner",
+            rtmp_server=server,
+            stream_key=key,
+            playlist_entries=self._entries if self._entries else None,
+        )
+
+        if show_dialog:
+            lines = []
+            for item in report.items:
+                icon = "✅" if item.status == "PASS" else ("⚠️" if item.status == "WARN" else "❌")
+                lines.append(f"{icon} {item.title}: {item.message}")
+                if item.status == "FAIL" and item.remediation:
+                    lines.append(f"   👉 Cách sửa: {item.remediation}\n")
+
+            detail_str = "\n".join(lines)
+            if report.can_start_live:
+                QMessageBox.information(
+                    self,
+                    "Kết quả Preflight — Đủ điều kiện LIVE",
+                    f"{report.summary}\n\n{detail_str}",
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Kết quả Preflight — Chưa đủ điều kiện (CHẶN CỨNG)",
+                    f"{report.summary}\n\n{detail_str}",
+                )
+        return report
 
     def _open_showcase_modal(self) -> None:
         """Open the AI Presenter Showcase Modal for currently playing or selected product."""
@@ -615,6 +678,22 @@ class LiveStudioPage(QWidget):
         )
 
     def _start_streaming(self) -> None:
+        # Strict Preflight Check before starting stream (§3.4 & §6)
+        report = self._run_preflight_check(show_dialog=False)
+        if not report.can_start_live:
+            failed_msgs = [
+                f"❌ {item.title}: {item.message}\n👉 Khắc phục: {item.remediation}"
+                for item in report.items
+                if item.status == "FAIL"
+            ]
+            QMessageBox.critical(
+                self,
+                "Chặn phát trực tiếp — Chưa đạt Preflight",
+                f"Phát hiện {report.fail_count} điều kiện chưa đạt chuẩn an toàn trước khi LIVE:\n\n"
+                + "\n\n".join(failed_msgs),
+            )
+            return
+
         if not self.obs_client.is_connected:
             QMessageBox.warning(self, "Chưa kết nối OBS", "Hãy kết nối OBS trước khi bắt đầu LIVE.")
             return
@@ -755,6 +834,7 @@ class LiveStudioPage(QWidget):
             auto_switch_scene=self.settings_service.get_bool(KEY_OBS_AUTO_SWITCH_SCENE, True),
             audio_mode=audio_mode,
             max_consecutive_errors=app_settings.scheduler_max_consecutive_errors,
+            use_filler_fallback=True,
             session_name=f"LIVE {self.platform_combo.currentText()} — {playlist.name}",
         )
         self._entries = entries

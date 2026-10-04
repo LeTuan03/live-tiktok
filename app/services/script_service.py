@@ -108,13 +108,26 @@ class ScriptService:
             f"ĐỊNH HƯỚNG LOẠI KỊCH BẢN:\n{script_type_instructions}\n\n"
             "QUY TẮC BẮT BUỘC:\n"
             "1. Chỉ trả về duy nhất lời thoại mà streamer sẽ nói trực tiếp trên livestream.\n"
-            "2. Có thể kèm các gợi ý hành động/biểu cảm đặt trong ngoặc đơn ngắn gọn (VD: (giơ sản phẩm lại gần camera), (cười tươi)).\n"
+            "2. KHÔNG chèn gợi ý hành động/biểu cảm vào trong lời nói; lời thoại phải hoàn toàn sạch để bộ máy đọc TTS không đọc nhầm.\n"
             "3. Không đưa lời chào hỏi rườm rà hay mở đầu kiểu 'Dưới đây là kịch bản...'. Vào thẳng câu mở đầu phiên live luôn!\n"
             "4. Văn phong tiếng Việt tự nhiên, chuẩn ngôn ngữ livestream thương mại điện tử hiện đại.\n"
             "5. CHỈ dùng thông tin sản phẩm được cung cấp bên dưới. KHÔNG bịa thêm công dụng, chứng nhận, "
             "số liệu, giải thưởng, tồn kho, chương trình khuyến mãi hay chính sách ship/bảo hành/đổi trả "
             "nếu không có trong dữ liệu. Không hứa hẹn kết quả về sức khỏe, làm đẹp, tài chính.\n"
-            "6. Nếu dữ liệu thiếu, hãy nói chung chung và mời khách hỏi thêm thay vì khẳng định."
+            "6. Nếu dữ liệu thiếu, hãy nói chung chung và mời khách hỏi thêm thay vì khẳng định.\n"
+            "7. ĐỊNH DẠNG ĐẦU RA: Xuất định dạng JSON phân đoạn chuẩn cấu trúc:\n"
+            "{\n"
+            '  "set_id": "phong_khach_am",\n'
+            '  "segments": [\n'
+            '    { "text": "Lời nói của đoạn 1", "cue": "WAVE_GREET", "shot": "WIDE_MODEL", "emphasis": "high" },\n'
+            '    { "text": "Lời nói của đoạn 2", "cue": "HOLD_PRODUCT", "shot": "MEDIUM_MODEL", "emphasis": "normal" },\n'
+            '    { "text": "Lời nói của đoạn 3", "cue": "SHOW_DETAIL", "shot": "CLOSEUP_PRODUCT", "emphasis": "normal" },\n'
+            '    { "text": "Lời nói của đoạn 4", "cue": "POINT_PRICE", "shot": "SPLIT", "emphasis": "high" },\n'
+            '    { "text": "Lời nói của đoạn 5", "cue": "CTA_POINT_DOWN", "shot": "MEDIUM_MODEL", "emphasis": "high" }\n'
+            "  ]\n"
+            "}\n"
+            "Các cue: WAVE_GREET, HOLD_PRODUCT, SHOW_DETAIL, POINT_PRICE, TRY_ON, CTA_POINT_DOWN, NOD_LISTEN, SURPRISE, IDLE_TALK.\n"
+            "Các shot: WIDE_MODEL, MEDIUM_MODEL, CLOSEUP_PRODUCT, SPLIT, INSET_PRODUCT, TRYON_WIDE."
         )
 
         details = f"- Tên sản phẩm: {name}\n"
@@ -212,7 +225,10 @@ class ScriptService:
         if not content or len(content.strip()) < 20:
             raise RuntimeError("Nội dung AI trả về quá ngắn hoặc rỗng.")
 
-        word_count = len(content.split())
+        from app.services.script_segment_service import parse_and_validate_script_json
+        structured = parse_and_validate_script_json(content)
+        saved_content = structured.to_json()
+        word_count = len(structured.total_text.split())
         estimated_seconds = (word_count / 150) * 60
 
         resolved_name = product.name if product else (product_name or "Sản phẩm")
@@ -243,7 +259,7 @@ class ScriptService:
         script = self.script_repo.create(
             product_id=product_id,
             title=title,
-            content=content,
+            content=saved_content,
             style=style,
             target_audience=target_audience,
             language="vi",

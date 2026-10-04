@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -18,9 +19,39 @@ from app.integrations.tts.edge_tts_provider import EdgeTTSProvider
 # Edge TTS output: 24 kHz mono MP3 at 48 kbps → ~6000 bytes per second.
 _EDGE_TTS_BYTES_PER_SECOND = 6000
 
+# ---------------------------------------------------------------------------
+# Stage direction stripping — safety net for bug #1
+# Removes cue/gesture annotations that must NEVER be spoken aloud:
+#   (giơ sản phẩm lại gần camera)  [cười tươi]  *nhấn mạnh*
+# ---------------------------------------------------------------------------
+_STAGE_DIR_RE = re.compile(
+    r"""
+    \(  [^)]*  \)       # (anything in parentheses)
+    | \[  [^\]]*  \]    # [anything in square brackets]
+    | \*  [^*]+  \*     # *anything between single asterisks*
+    """,
+    re.VERBOSE,
+)
+
+
+def strip_stage_directions(text: str) -> str:
+    """Remove all stage-direction annotations from text before TTS.
+
+    Examples
+    --------
+    >>> strip_stage_directions("Chào cả nhà (giơ sản phẩm lại gần camera), giá chỉ còn 199k!")
+    'Chào cả nhà , giá chỉ còn 199k!'
+    >>> strip_stage_directions("[cười tươi] Hôm nay có deal sốc *nhấn mạnh* nha!")
+    ' Hôm nay có deal sốc  nha!'
+    """
+    cleaned = _STAGE_DIR_RE.sub("", text)
+    # Collapse multiple spaces but preserve newlines
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    return cleaned.strip()
+
 
 def estimate_mp3_duration(file_path: str | Path) -> Optional[float]:
-    """Best-effort duration: ffprobe when available, else bitrate-based estimate."""
+    """Get accurate duration from ffprobe. Falls back to bitrate-based estimate with warning."""
     try:
         from app.integrations.ffmpeg.ffprobe_service import FFProbeService
 
@@ -31,9 +62,11 @@ def estimate_mp3_duration(file_path: str | Path) -> Optional[float]:
         pass
     try:
         size = os.path.getsize(file_path)
+        logger.warning("ffprobe không khả dụng; dùng ước tính bitrate (filesize/6000) cho {}", file_path)
         return round(size / _EDGE_TTS_BYTES_PER_SECOND, 1)
     except OSError:
         return None
+
 
 
 def speed_to_rate(speed: float) -> str:
@@ -115,16 +148,18 @@ class VoiceService:
         return self.voice_repo.delete_profile(profile_id)
 
     # --------------------------------------------------------------- cache
-    def compute_audio_hash(self, text: str, voice_id: str, speed: float, volume: float = 1.0) -> str:
+    def compute_audio_hash(self, text: str, voice_id: str, speed: float = 1.0, volume: float = 1.0) -> str:
         """SHA-256 of content + voice configuration (cache key)."""
-        raw_key = f"{text.strip()}||{voice_id}||{speed:.2f}||{volume:.2f}"
+        spd = speed if speed is not None else 1.0
+        vol = volume if volume is not None else 1.0
+        raw_key = f"{text.strip()}||{voice_id}||{spd:.2f}||{vol:.2f}"
         return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
 
     def get_cached(self, text: str, voice_profile: Optional[VoiceProfile] = None) -> Optional[GeneratedAudio]:
         profile = voice_profile or self.get_default_profile()
         voice_id = profile.voice_id if profile else get_settings().tts_default_voice
-        speed = profile.speed if profile else 1.0
-        volume = profile.volume if profile else 1.0
+        speed = profile.speed if profile and profile.speed is not None else 1.0
+        volume = profile.volume if profile and profile.volume is not None else 1.0
         cached = self.voice_repo.get_cached_audio(self.compute_audio_hash(text, voice_id, speed, volume))
         if cached and os.path.exists(cached.file_path):
             return cached
@@ -132,15 +167,20 @@ class VoiceService:
 
     # ------------------------------------------------------------ generate
     async def _synthesize(self, text: str, output_path: Path, voice_id: str, speed: float, volume: float) -> None:
+        # Safety net: NEVER let stage directions reach the TTS engine (bug #1)
+        text = strip_stage_directions(text)
+        if not text.strip():
+            raise TTSProviderError("Nội dung kịch bản trống sau khi lọc ghi chú cử chỉ.")
         provider = EdgeTTSProvider()
-        volume_percent = int(round((volume - 1.0) * 100))
+        vol = volume if volume is not None else 1.0
+        volume_percent = int(round((vol - 1.0) * 100))
         volume_str = f"{'+' if volume_percent >= 0 else ''}{volume_percent}%"
         try:
             await provider.generate_speech(
                 text=text,
                 output_path=str(output_path),
                 voice_id=voice_id,
-                rate=speed_to_rate(speed),
+                rate=speed_to_rate(speed if speed is not None else 1.0),
                 volume=volume_str,
             )
         except Exception as e:
@@ -151,6 +191,102 @@ class VoiceService:
             raise TTSProviderError(f"Edge TTS lỗi: {msg}.{hint}") from e
         if not output_path.exists() or output_path.stat().st_size == 0:
             raise TTSProviderError("Edge TTS không tạo được file âm thanh (file rỗng).")
+
+    async def synthesize_structured_script(
+        self,
+        script_id: int,
+        structured_script: Any,
+        voice_profile: Optional[VoiceProfile] = None,
+        force_regenerate: bool = False,
+    ) -> tuple[GeneratedAudio, Any]:
+        """Synthesize TTS audio for each segment, determine exact segment durations with ffprobe,
+        and concatenate into a synchronized master audio track.
+        """
+        if not structured_script.segments:
+            raise TTSProviderError("Kịch bản không có phân đoạn nào để đọc.")
+
+        profile = voice_profile or self.get_default_profile()
+        voice_id = profile.voice_id if profile else get_settings().tts_default_voice
+        speed = profile.speed if profile and profile.speed is not None else 1.0
+        volume = profile.volume if profile and profile.volume is not None else 1.0
+
+        seg_files: list[Path] = []
+        for i, seg in enumerate(structured_script.segments):
+            clean_text = seg.clean_text_for_tts()
+            if not clean_text:
+                continue
+
+            seg_hash = self.compute_audio_hash(clean_text, voice_id, speed, volume)
+            seg_file = self.storage_dir / f"seg_audio_{script_id}_{i}_{seg_hash[:8]}.mp3"
+
+            if force_regenerate or not seg_file.exists() or seg_file.stat().st_size == 0:
+                await self._synthesize(clean_text, seg_file, voice_id, speed, volume)
+
+            dur = self.get_audio_duration(seg_file)
+            seg.duration_seconds = dur
+            seg.audio_path = str(seg_file)
+            seg_files.append(seg_file)
+
+        if not seg_files:
+            raise TTSProviderError("Không có đoạn kịch bản hợp lệ nào sau khi loại bỏ cử chỉ.")
+
+        # Master combined audio
+        content_hash = self.compute_audio_hash(structured_script.total_text, voice_id, speed, volume)
+        master_file = self.storage_dir / f"audio_script_{script_id}_{content_hash[:10]}.mp3"
+
+        if len(seg_files) == 1:
+            import shutil
+            shutil.copyfile(str(seg_files[0]), str(master_file))
+        else:
+            from app.integrations.ffmpeg.ffprobe_service import FFProbeService
+            import subprocess, tempfile
+
+            ffmpeg_exe = FFProbeService()._ffmpeg_path
+            concat_ok = False
+            if ffmpeg_exe and Path(ffmpeg_exe).exists():
+                with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                    for sf in seg_files:
+                        escaped = str(sf).replace("\\", "/")
+                        f.write(f"file '{escaped}'\n")
+                    list_path = f.name
+                try:
+                    cmd = [ffmpeg_exe, "-y", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", str(master_file)]
+                    res = subprocess.run(cmd, capture_output=True, timeout=30)
+                    if res.returncode == 0 and master_file.exists() and master_file.stat().st_size > 0:
+                        concat_ok = True
+                except Exception as e:
+                    logger.debug("Lỗi ffmpeg concat, chuyển sang binary merge: {}", e)
+                finally:
+                    if os.path.exists(list_path):
+                        try:
+                            os.unlink(list_path)
+                        except OSError:
+                            pass
+
+            if not concat_ok:
+                with open(master_file, "wb") as outfile:
+                    for sf in seg_files:
+                        with open(sf, "rb") as infile:
+                            outfile.write(infile.read())
+
+        master_dur = self.get_audio_duration(master_file)
+        file_size = master_file.stat().st_size
+
+        audio = self.voice_repo.create_generated_audio(
+            script_id=script_id,
+            file_path=str(master_file),
+            content_hash=content_hash,
+            voice_profile_id=profile.id if profile else None,
+            duration_seconds=master_dur,
+            file_size_bytes=file_size,
+            voice_id=voice_id,
+        )
+        logger.info(
+            "Đã tạo master audio cho kịch bản phân đoạn: {} segments, tổng {:.1f}s",
+            len(seg_files),
+            master_dur,
+        )
+        return audio, structured_script
 
     async def generate_speech(
         self,
@@ -163,6 +299,22 @@ class VoiceService:
         text = text.strip()
         if not text:
             raise TTSProviderError("Nội dung kịch bản trống, không thể tạo giọng đọc.")
+
+        # Check if text is structured JSON with segments
+        if text.startswith("{") and "segments" in text:
+            try:
+                from app.services.script_segment_service import parse_and_validate_script_json
+                structured = parse_and_validate_script_json(text)
+                if structured.segments:
+                    audio, _ = await self.synthesize_structured_script(
+                        script_id=script_id,
+                        structured_script=structured,
+                        voice_profile=voice_profile,
+                        force_regenerate=force_regenerate,
+                    )
+                    return audio
+            except Exception as e:
+                logger.warning("Không thể tổng hợp theo phân đoạn JSON, chuyển sang đọc toàn văn: {}", e)
 
         profile = voice_profile or self.get_default_profile()
         voice_id = profile.voice_id if profile else get_settings().tts_default_voice
@@ -196,6 +348,7 @@ class VoiceService:
         )
         logger.info("Đã tạo audio TTS: {} ({:.1f}s)", output_path.name, duration or 0)
         return audio
+
 
     async def generate_preview(
         self, text: str, voice_id: str, speed: float = 1.0, volume: float = 1.0

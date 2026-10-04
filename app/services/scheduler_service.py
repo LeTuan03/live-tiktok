@@ -80,6 +80,8 @@ class PlaylistEntry:
     duration_seconds: Optional[float] = None
     enabled: bool = True
     notes: str = ""
+    price: Optional[float] = None
+    promo_price: Optional[float] = None
 
 
 @dataclass
@@ -104,6 +106,7 @@ class OrchestratorConfig:
     # Audio routing: "obs" (media source) or "local" (QMediaPlayer via UI)
     audio_mode: str = "local"
     max_consecutive_errors: int = 3
+    use_filler_fallback: bool = False
     session_name: str = "Phiên LIVE"
     extra: Dict[str, Any] = field(default_factory=dict)
 
@@ -255,10 +258,18 @@ class LiveOrchestrator(QThread):
                         self.sessions.increment(self.session_id, "error_count")
 
                     if consecutive_errors >= cfg.max_consecutive_errors:
-                        self._log("ERROR", f"Dừng vì {consecutive_errors} lỗi liên tiếp. Kiểm tra video/audio/OBS.")
-                        final_state = RunState.ERROR
-                        self._stop_event.set()
-                        break
+                        if cfg.use_filler_fallback:
+                            self._log(
+                                "WARNING",
+                                f"⚠️ Đã gặp {consecutive_errors} lỗi liên tiếp. Phát clip filler dự phòng để không gián đoạn livestream (Fix #17, #18).",
+                            )
+                            self._play_filler()
+                            consecutive_errors = 0
+                        else:
+                            self._log("ERROR", f"Dừng vì {consecutive_errors} lỗi liên tiếp. Kiểm tra video/audio/OBS.")
+                            final_state = RunState.ERROR
+                            self._stop_event.set()
+                            break
 
                     if self._stop_event.is_set():
                         break
@@ -288,10 +299,27 @@ class LiveOrchestrator(QThread):
         has_media = False
         obs_ready = cfg.use_obs and self.obs is not None
 
-        # 0) Overlay text (product name + price) — like the price card in auto-live streams
-        if obs_ready and cfg.show_overlay_text and cfg.obs_text_source:
-            overlay = entry.product_name + (f"\n{entry.price_text}" if entry.price_text else "")
-            self.obs.set_text(cfg.obs_text_source, overlay)
+        # 0) Overlay text & Banner (L4/L6) — replaces plain text overlay with Pillow glassmorphic banner
+        if obs_ready and cfg.show_overlay_text:
+            if cfg.obs_text_source:
+                overlay = entry.product_name + (f"\n{entry.price_text}" if entry.price_text else "")
+                self.obs.set_text(cfg.obs_text_source, overlay)
+            if cfg.obs_image_source:
+                try:
+                    from app.render.banner import BannerGenerator
+                    banner_dir = Path("storage/banners")
+                    banner_path = banner_dir / f"banner_p_{entry.product_id or index}.png"
+                    bg = BannerGenerator()
+                    bg.save_overlay(
+                        product_name=entry.product_name,
+                        output_path=banner_path,
+                        price=entry.price,
+                        promo_price=entry.promo_price,
+                        is_live=True,
+                    )
+                    self.obs.set_image_source_file(cfg.obs_image_source, str(banner_path))
+                except Exception as e:
+                    logger.debug("Lỗi sinh banner cho OBS: {}", e)
 
         # 1) Visual: video (preferred) or still image → OBS sources
         video_ok = bool(entry.video_path and os.path.exists(entry.video_path))
@@ -307,7 +335,7 @@ class LiveOrchestrator(QThread):
                     self._log("WARNING", "Không đặt được video cho OBS media source (kiểm tra kết nối/nguồn).")
             else:
                 self.obs.stop_media(cfg.obs_video_source)  # clear previous product video
-            if cfg.obs_image_source:
+            if cfg.obs_image_source and not cfg.show_overlay_text:
                 if image_ok and not video_ok:
                     if self.obs.set_image_source_file(cfg.obs_image_source, entry.image_path):
                         has_media = True
@@ -380,6 +408,18 @@ class LiveOrchestrator(QThread):
         return "completed"
 
     # ---------------------------------------------------------- helpers
+    def _play_filler(self, duration: float = 6.0) -> None:
+        """Play a standby filler clip so viewers don't see black screen or dropped live session (Fix #17, #18)."""
+        try:
+            from app.playout.filler import create_filler_clip
+            filler_path = create_filler_clip()
+            if self.config.use_obs and self.obs and self.config.obs_video_source:
+                self.obs.set_media_source_file(self.config.obs_video_source, str(filler_path), loop=True)
+                self._log("INFO", "📺 Đang phát clip filler dự phòng trên sóng.")
+                self._sleep(duration)
+        except Exception as e:
+            self._log("WARNING", f"Không thể phát filler: {e}")
+
     def _wait_if_paused(self) -> None:
         if self._pause_event.is_set():
             return
@@ -409,7 +449,12 @@ class LiveOrchestrator(QThread):
                 self._log("WARNING", "OBS không nhận file audio — chuyển sang phát âm thanh cục bộ.")
                 self._local_audio_done.clear()
                 self.play_audio_requested.emit(path)
+                return True  # fallback to local succeeded
             return True
+        # Local mode
+        if not os.path.exists(path):
+            self._log("ERROR", f"File audio không tồn tại: {path}")
+            return False
         self._local_audio_done.clear()
         self.play_audio_requested.emit(path)
         return True
@@ -429,20 +474,28 @@ class LiveOrchestrator(QThread):
         return spent
 
     def _pause_media(self) -> None:
+        """Pause BOTH audio AND video so the viewer sees a full freeze (fix #9)."""
         cfg = self.config
-        if cfg.use_obs and self.obs and cfg.obs_audio_source and cfg.audio_mode == "obs":
+        if cfg.use_obs and self.obs:
             from app.integrations.obs.client import MEDIA_PAUSE
 
-            self.obs.media_action(cfg.obs_audio_source, MEDIA_PAUSE)
+            if cfg.obs_audio_source and cfg.audio_mode == "obs":
+                self.obs.media_action(cfg.obs_audio_source, MEDIA_PAUSE)
+            if cfg.obs_video_source:
+                self.obs.media_action(cfg.obs_video_source, MEDIA_PAUSE)
         else:
             self.stop_audio_requested.emit()
 
     def _resume_media(self) -> None:
+        """Resume BOTH audio AND video (fix #4 — local mode was a no-op)."""
         cfg = self.config
-        if cfg.use_obs and self.obs and cfg.obs_audio_source and cfg.audio_mode == "obs":
+        if cfg.use_obs and self.obs:
             from app.integrations.obs.client import MEDIA_PLAY
 
-            self.obs.media_action(cfg.obs_audio_source, MEDIA_PLAY)
+            if cfg.obs_audio_source and cfg.audio_mode == "obs":
+                self.obs.media_action(cfg.obs_audio_source, MEDIA_PLAY)
+            if cfg.obs_video_source:
+                self.obs.media_action(cfg.obs_video_source, MEDIA_PLAY)
 
     def _stop_media(self) -> None:
         cfg = self.config
@@ -562,6 +615,8 @@ def build_entries_from_playlist(playlist, media_lookup=None) -> List[PlaylistEnt
                 duration_seconds=item.duration_seconds,
                 enabled=bool(item.is_enabled),
                 notes=item.notes or "",
+                price=product.price if product else None,
+                promo_price=product.promo_price if product else None,
             )
         )
     return entries

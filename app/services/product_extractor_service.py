@@ -157,7 +157,9 @@ class ProductExtractorService:
             "}\n"
             "LƯU Ý QUAN TRỌNG:\n"
             "- price và promo_price phải là số nguyên (VNĐ), nếu không thấy giá khuyến mãi thì để promo_price bằng price hoặc null.\n"
-            "- Nếu thông tin bị thiếu do trang web bảo mật, hãy dùng trí tuệ nhân tạo suy luận thông minh dựa trên tên sản phẩm và đường link để điền đầy đủ các thông số thực tế."
+            "- Chỉ trích xuất thông tin CÓ TRONG nội dung được cung cấp. Trường nào KHÔNG CÓ thông tin → trả null. "
+            "KHÔNG ĐƯỢC suy đoán, ước lượng hay bịa giá, thành phần, chứng nhận, thông số kỹ thuật.\n"
+            "- Nếu trang web bị chặn và không có nội dung, chỉ trả name từ URL và các trường còn lại để null."
         )
 
         raw = await provider.generate_text(prompt, temperature=0.3)
