@@ -160,6 +160,106 @@ class OBSCompositor:
             logger.error("Lỗi thiết lập scene chuẩn OBS: {}", err)
             return False, f"Không thể thiết lập scene chuẩn OBS: {err}"
 
+    def setup_realtime_scene(
+        self,
+        scene_name: str = "LiveFlow Realtime Live",
+        bridge_host: str = "127.0.0.1",
+        bridge_port: int = 8088,
+        avatar_source_name: str = "LiveFlow Realtime Avatar",
+        overlay_source_name: str = "LiveFlow 9:16 Overlay",
+        background_source_name: str = "LiveFlow Ambient BG",
+    ) -> Tuple[bool, str]:
+        """Setup vertical 1080x1920 scene in OBS with WebRTC Avatar and 9:16 dynamic overlay Browser Sources (§4)."""
+        if not self.obs.is_connected:
+            return False, "Chưa kết nối OBS Studio."
+
+        created: list[str] = []
+        try:
+            # 1. Enforce 9:16 vertical canvas
+            ok_canvas, msg_canvas = self.enforce_canvas_format(CANVAS_WIDTH, CANVAS_HEIGHT, CANVAS_FPS)
+            if not ok_canvas:
+                logger.warning("Cảnh báo canvas: {}", msg_canvas)
+
+            # 2. Ensure scene exists
+            scenes = self.obs.get_scenes()
+            if scene_name not in scenes:
+                self.obs._call("create_scene", scene_name)
+                created.append(f"Scene '{scene_name}'")
+
+            existing_inputs = set(self.obs.list_inputs())
+
+            # 3. Avatar Browser Source (Middle layer, transparent background, WebRTC)
+            avatar_url = f"http://{bridge_host}:{bridge_port}/avatar.html"
+            avatar_settings = {
+                "url": avatar_url,
+                "width": CANVAS_WIDTH,
+                "height": CANVAS_HEIGHT,
+                "fps": CANVAS_FPS,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }",
+                "reroute_audio": True,
+                "restart_when_active": False,
+            }
+            if avatar_source_name not in existing_inputs:
+                self.obs._call(
+                    "create_input",
+                    scene_name,
+                    avatar_source_name,
+                    "browser_source",
+                    avatar_settings,
+                    True,
+                )
+                created.append(f"Realtime Avatar '{avatar_source_name}'")
+            else:
+                self.obs._ensure_in_scene(scene_name, avatar_source_name)
+                self.obs._call("set_input_settings", avatar_source_name, avatar_settings, True)
+
+            # 4. Overlay Browser Source (Top layer, Product Card + Comment Toast + CTA)
+            overlay_url = f"http://{bridge_host}:{bridge_port}/overlay.html"
+            overlay_settings = {
+                "url": overlay_url,
+                "width": CANVAS_WIDTH,
+                "height": CANVAS_HEIGHT,
+                "fps": CANVAS_FPS,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }",
+                "reroute_audio": False,
+                "restart_when_active": False,
+            }
+            if overlay_source_name not in existing_inputs:
+                self.obs._call(
+                    "create_input",
+                    scene_name,
+                    overlay_source_name,
+                    "browser_source",
+                    overlay_settings,
+                    True,
+                )
+                created.append(f"Overlay 9:16 '{overlay_source_name}'")
+            else:
+                self.obs._ensure_in_scene(scene_name, overlay_source_name)
+                self.obs._call("set_input_settings", overlay_source_name, overlay_settings, True)
+
+            # Fit sources to canvas
+            self.obs._fit_to_canvas(scene_name, avatar_source_name)
+            self.obs._fit_to_canvas(scene_name, overlay_source_name)
+
+            # 5. Enforce deterministic Z-order: Avatar (0) -> Overlay (1)
+            layers = [avatar_source_name, overlay_source_name]
+            z_ok, z_msg = self.enforce_z_order(scene_name, layers)
+
+            # Switch to this scene
+            self.obs.set_current_scene(scene_name)
+
+            summary = f"Đã thiết lập scene Realtime Avatar '{scene_name}' (1080×1920)."
+            if created:
+                summary += " Tạo mới: " + ", ".join(created) + "."
+            logger.info(summary)
+            return True, summary
+
+        except Exception as e:
+            err = self.obs._friendly_error(e)
+            logger.error("Lỗi thiết lập realtime scene OBS: {}", err)
+            return False, f"Không thể thiết lập realtime scene: {err}"
+
     def enforce_z_order(self, scene_name: str, layer_order: List[str]) -> Tuple[bool, str]:
         """Order sources in scene from bottom (index 0) to top (index N-1).
 

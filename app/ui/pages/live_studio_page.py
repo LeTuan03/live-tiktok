@@ -107,11 +107,14 @@ class LiveStudioPage(QWidget):
         self._session = get_session()
         self.settings_service = SettingsService(self._session)
         self.playlist_repo = PlaylistRepository(self._session)
+        from app.services.avatar_service import AvatarService
+        self.avatar_service = AvatarService(self._session)
         self._audio = LocalAudioPlayer(self, self._on_local_audio_finished)
 
         self._init_ui()
         self.reload_settings()
         self.refresh_playlists()
+        self.refresh_avatars()
 
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(5000)
@@ -270,6 +273,18 @@ class LiveStudioPage(QWidget):
         self.audio_mode_combo.addItem("Media source trong OBS (âm thanh nhúng trong stream)", "obs")
         audio_row.addWidget(self.audio_mode_combo, 1)
         right_layout.addLayout(audio_row)
+
+        avatar_row = QHBoxLayout()
+        avatar_row.addWidget(QLabel("Người Mẫu AI khi Live:"))
+        self.avatar_combo = QComboBox()
+        self.avatar_combo.setToolTip("Chọn Người Mẫu AI xuất hiện trên luồng phát trực tiếp OBS")
+        self.avatar_combo.currentIndexChanged.connect(self._on_avatar_changed)
+        avatar_row.addWidget(self.avatar_combo, 1)
+        self.toggle_avatar_btn = QPushButton("👁️ Gửi lên OBS")
+        self.toggle_avatar_btn.setToolTip("Gửi Người Mẫu AI đã chọn lên OBS Studio ngay lập tức")
+        self.toggle_avatar_btn.clicked.connect(self._toggle_avatar_on_obs)
+        avatar_row.addWidget(self.toggle_avatar_btn)
+        right_layout.addLayout(avatar_row)
 
         ctrl_layout = QHBoxLayout()
         self.start_btn = QPushButton("▶️ Bắt đầu điều phối")
@@ -512,7 +527,7 @@ class LiveStudioPage(QWidget):
 
         scene, video, audio = self.settings_service.get_obs_sources()
         image, text = self.settings_service.get_obs_extra_sources()
-        avatar = self.settings_service.get(KEY_OBS_AVATAR_SOURCE) or ""
+        avatar = self.settings_service.get_obs_avatar_source() or "LiveFlow Avatar"
 
         reply = QMessageBox.question(
             self,
@@ -521,7 +536,8 @@ class LiveStudioPage(QWidget):
             "1. Đặt Canvas 1080×1920 (dọc) @ 30fps và kiểm chứng lại.\n"
             f"2. Tạo scene chuẩn '{scene or 'LiveFlow Live'}'.\n"
             f"3. Tạo nguồn phát video '{video or 'LiveFlow Player'}' căn 1080×1920.\n"
-            f"4. Tạo nguồn banner '{image or 'LiveFlow Banner'}' với Z-order chuẩn xác.\n\n"
+            f"4. Tạo nguồn banner '{image or 'LiveFlow Banner'}' với Z-order chuẩn xác.\n"
+            f"5. Tạo nguồn Người Mẫu AI '{avatar}' góc phải (hỗ trợ xóa phông xanh Chroma Key).\n\n"
             "Các scene/nguồn khác của bạn KHÔNG bị thay đổi. Tiếp tục?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
@@ -709,6 +725,12 @@ class LiveStudioPage(QWidget):
         ok, msg = self.obs_client.start_stream()
         self._add_log(("🔴 " if ok else "❌ ") + msg)
         log_activity("obs", "Bắt đầu stream" if ok else "Bắt đầu stream thất bại", msg, level="INFO" if ok else "ERROR")
+        if ok and self.obs_client.is_connected:
+            avatar_id = self.avatar_combo.currentData()
+            if avatar_id is not None:
+                avatar = self.avatar_service.get_avatar(avatar_id)
+                if avatar:
+                    self.avatar_service.send_avatar_to_obs(self.obs_client, avatar)
         (QMessageBox.information if ok else QMessageBox.critical)(self, "Bắt đầu LIVE", msg)
         self._poll_obs_status()
 
@@ -726,16 +748,81 @@ class LiveStudioPage(QWidget):
         log_activity("obs", "Dừng stream", msg)
         self._poll_obs_status()
 
+    # -------------------------------------------------------------- avatars
+    def refresh_avatars(self) -> None:
+        if not hasattr(self, "avatar_combo"):
+            return
+        current = self.avatar_combo.currentData()
+        self.avatar_combo.blockSignals(True)
+        self.avatar_combo.clear()
+        self.avatar_combo.addItem("🚫 Không dùng người mẫu", None)
+        default_idx = 0
+        avatars = self.avatar_service.get_avatars(active_only=True)
+        for i, a in enumerate(avatars):
+            self.avatar_combo.addItem(f"💃 {a.name}", a.id)
+            if current == a.id or (current is None and a.is_default):
+                default_idx = i + 1
+        self.avatar_combo.setCurrentIndex(default_idx)
+        self.avatar_combo.blockSignals(False)
+
+    def _on_avatar_changed(self) -> None:
+        avatar_id = self.avatar_combo.currentData()
+        if not self.obs_client.is_connected:
+            return
+        if avatar_id is None:
+            self.avatar_service.hide_avatar_in_obs(self.obs_client)
+            self._add_log("🙈 Đã ẩn Người Mẫu AI trên OBS.")
+        else:
+            avatar = self.avatar_service.get_avatar(avatar_id)
+            if avatar:
+                ok, msg = self.avatar_service.send_avatar_to_obs(self.obs_client, avatar)
+                if ok:
+                    self._add_log(f"💃 Đã chuyển Người Mẫu AI: {avatar.name}")
+                else:
+                    self._add_log(f"⚠️ {msg}")
+
+    def _toggle_avatar_on_obs(self) -> None:
+        if not self.obs_client.is_connected:
+            QMessageBox.warning(self, "Chưa kết nối OBS", "Hãy kết nối OBS trước khi gửi Người Mẫu AI.")
+            return
+        avatar_id = self.avatar_combo.currentData()
+        if avatar_id is None:
+            if self.avatar_combo.count() > 1:
+                self.avatar_combo.setCurrentIndex(1)
+                avatar_id = self.avatar_combo.currentData()
+            else:
+                QMessageBox.information(self, "Thông báo", "Chưa có Người Mẫu AI nào trong hệ thống.")
+                return
+
+        avatar = self.avatar_service.get_avatar(avatar_id)
+        if not avatar:
+            return
+        ok, msg = self.avatar_service.send_avatar_to_obs(self.obs_client, avatar)
+        if ok:
+            self._add_log(f"💃 {msg}")
+            QMessageBox.information(self, "OBS Studio", f"✅ {msg}")
+        else:
+            self._add_log(f"❌ {msg}")
+            QMessageBox.warning(self, "OBS Studio", msg)
+
     # ----------------------------------------------------------- playlists
     def refresh_playlists(self) -> None:
         current = self.playlist_combo.currentData()
         self.playlist_combo.blockSignals(True)
         self.playlist_combo.clear()
-        for p in self.playlist_repo.list_playlists():
-            enabled = sum(1 for i in p.items if i.is_enabled)
+        auto_ai_idx = -1
+        for i, p in enumerate(self.playlist_repo.list_playlists()):
+            enabled = sum(1 for item in p.items if item.is_enabled)
             self.playlist_combo.addItem(f"{p.name}  ({enabled} mục bật)", p.id)
-        idx = self.playlist_combo.findData(current)
-        self.playlist_combo.setCurrentIndex(max(idx, 0))
+            if "Livestream Tự Động AI" in p.name:
+                auto_ai_idx = i
+        idx = self.playlist_combo.findData(current) if current is not None else -1
+        if idx >= 0:
+            self.playlist_combo.setCurrentIndex(idx)
+        elif auto_ai_idx >= 0:
+            self.playlist_combo.setCurrentIndex(auto_ai_idx)
+        else:
+            self.playlist_combo.setCurrentIndex(0)
         self.playlist_combo.blockSignals(False)
         self._on_playlist_selected()
 
@@ -849,6 +936,16 @@ class LiveStudioPage(QWidget):
         o.log_message.connect(lambda level, msg: self._add_log(msg))
         o.finished_run.connect(self._on_run_finished)
         o.start()
+
+        # Send selected AI Avatar to OBS for the live stream
+        if self.obs_client.is_connected:
+            avatar_id = self.avatar_combo.currentData()
+            if avatar_id is not None:
+                avatar = self.avatar_service.get_avatar(avatar_id)
+                if avatar:
+                    ok, msg = self.avatar_service.send_avatar_to_obs(self.obs_client, avatar)
+                    if ok:
+                        self._add_log(f"💃 Người Mẫu AI '{avatar.name}' đã lên sóng OBS.")
 
         self.start_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)

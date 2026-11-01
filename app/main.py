@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 from pathlib import Path
+
+# On Windows, force QtMultimedia to use the native Windows Media Foundation (WMF)
+# backend instead of FFmpeg, preventing noisy D3D11/DXVA2 hwaccel mismatch warnings.
+if sys.platform == "win32":
+    os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
 from loguru import logger
 

@@ -154,9 +154,22 @@ class AppSettings(BaseSettings):
     did_api_key: str = ""
     heygen_api_key: str = ""
 
+    # --- Google Veo 3 Video Generation ---
+    veo_model: str = "veo-3.1-fast-generate-preview"
+    veo_fallback_model: str = "veo-3.1-generate-preview"
+    veo_aspect_ratio: str = "9:16"
+    veo_duration_seconds: int = 5
+    veo_resolution: str = "720p"
+
     @property
     def effective_avatar_dir(self) -> Path:
         d = self.avatar_dir or (self.data_dir / "avatars")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def effective_veo_dir(self) -> Path:
+        d = self.data_dir / "veo_scenes"
         d.mkdir(parents=True, exist_ok=True)
         return d
 

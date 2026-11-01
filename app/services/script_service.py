@@ -170,6 +170,53 @@ class ScriptService:
 
         return system_prompt, user_prompt
 
+    async def generate_script_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        provider: Optional[BaseLLMProvider] = None,
+    ) -> str:
+        """Call LLM provider to generate script text and return clean spoken pitch."""
+        if not provider:
+            raise ValueError("Chưa cấu hình AI Provider hợp lệ.")
+        raw = await provider.generate_text(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            temperature=0.75,
+            max_tokens=1500,
+        )
+        try:
+            import json, re
+            clean_raw = raw.strip()
+            if clean_raw.startswith("```"):
+                lines = clean_raw.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                clean_raw = "\n".join(lines).strip()
+
+            data = json.loads(clean_raw)
+            if isinstance(data, dict):
+                segs = data.get("segments", [])
+                texts = [s.get("text", "").strip() for s in segs if isinstance(s, dict) and s.get("text")]
+                if texts:
+                    return " ".join(texts)
+                if "text" in data and isinstance(data["text"], str):
+                    return data["text"].strip()
+        except Exception:
+            pass
+
+        try:
+            import re
+            matches = re.findall(r'"text":\s*"([^"]+)"', raw)
+            if matches:
+                return " ".join(matches)
+        except Exception:
+            pass
+
+        return raw.strip()
+
     async def generate_script_with_ai(
         self,
         product: Optional[Product] = None,

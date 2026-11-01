@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QGuiApplication

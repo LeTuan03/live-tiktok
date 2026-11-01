@@ -23,10 +23,12 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSlider,
     QSplitter,
+    QStackedWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+from PySide6.QtMultimediaWidgets import QVideoWidget
 from loguru import logger
 
 from app.database.models.avatar import AIAvatar
@@ -63,24 +65,33 @@ class ScriptGenerateWorker(QThread):
         self.script_type = script_type
 
     def run(self) -> None:
+        content = ""
         try:
-            provider = get_llm_provider()
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            sys_prompt, user_prompt = self.script_service.build_script_prompt(
-                product=self.product,
-                script_type=self.script_type,
-                style=self.style,
-                duration_minutes=1.0,
-            )
-            content = loop.run_until_complete(
-                self.script_service.generate_script_text(
-                    system_prompt=sys_prompt,
-                    user_prompt=user_prompt,
-                    provider=provider,
+            try:
+                provider = get_llm_provider()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                sys_prompt, user_prompt = self.script_service.build_script_prompt(
+                    product=self.product,
+                    script_type=self.script_type,
+                    style=self.style,
+                    duration_minutes=1.0,
                 )
-            )
-            loop.close()
+                content = loop.run_until_complete(
+                    self.script_service.generate_script_text(
+                        system_prompt=sys_prompt,
+                        user_prompt=user_prompt,
+                        provider=provider,
+                    )
+                )
+                loop.close()
+            except Exception as llm_err:
+                logger.warning("LLM không khả dụng ({}), chuyển sang template bán hàng tự động", llm_err)
+
+            if not content or len(content.strip()) < 20:
+                from app.services.auto_showcase_service import AutoShowcaseService
+                content = AutoShowcaseService().generate_product_pitch(self.product, "em")
+
             self.finished.emit(content, "")
         except Exception as e:
             logger.exception("Lỗi khi sinh kịch bản giới thiệu")
@@ -195,12 +206,19 @@ class ProductShowcaseDialog(QDialog):
     def _init_player(self) -> None:
         self._player = None
         self._audio_output = None
+        self._avatar_video_player = None
+        self._avatar_audio_output = None
         try:
             from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
             self._player = QMediaPlayer(self)
             self._audio_output = QAudioOutput(self)
             self._player.setAudioOutput(self._audio_output)
             self._player.mediaStatusChanged.connect(self._on_player_status)
+
+            self._avatar_video_player = QMediaPlayer(self)
+            self._avatar_audio_output = QAudioOutput(self)
+            self._avatar_video_player.setAudioOutput(self._avatar_audio_output)
+            self._avatar_audio_output.setMuted(True)
         except Exception as e:
             logger.warning("QtMultimedia unavailable: {}", e)
 
@@ -327,15 +345,30 @@ class ProductShowcaseDialog(QDialog):
         self.prod_preview.setScaledContents(True)
         stage_box_layout.addWidget(self.prod_preview)
 
-        # Virtual Presenter Avatar Visual
+        # Virtual Presenter Avatar Viewport (Stacked: Video Widget or Image Label fallback)
+        self.avatar_stack = QStackedWidget()
+        self.avatar_stack.setFixedSize(200, 290)
+
+        # Page 0: Live Video Widget
+        try:
+            self.avatar_video_widget = QVideoWidget()
+            self.avatar_video_widget.setStyleSheet("border-radius: 8px; background: #000000;")
+            if self._avatar_video_player:
+                self._avatar_video_player.setVideoOutput(self.avatar_video_widget)
+            self.avatar_stack.addWidget(self.avatar_video_widget)
+        except Exception:
+            self.avatar_video_widget = None
+
+        # Page 1: Fallback Image Label
         self.avatar_preview = QLabel("Người mẫu AI")
         self.avatar_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.avatar_preview.setStyleSheet(
             f"background-color: #1E202C; border-radius: 8px; color: {COLORS['text_muted']}; border: 1px solid {COLORS['accent']};"
         )
-        self.avatar_preview.setFixedSize(170, 260)
         self.avatar_preview.setScaledContents(True)
-        stage_box_layout.addWidget(self.avatar_preview)
+        self.avatar_stack.addWidget(self.avatar_preview)
+
+        stage_box_layout.addWidget(self.avatar_stack)
 
         stage_layout.addWidget(self.stage_box, 1)
 
@@ -479,6 +512,12 @@ class ProductShowcaseDialog(QDialog):
         self.video_gen_btn.clicked.connect(self._on_generate_video)
         action_bar.addWidget(self.video_gen_btn)
 
+        self.veo_studio_btn = QPushButton("✨ Tạo Video Veo 3 Tự Động")
+        self.veo_studio_btn.setStyleSheet("font-weight: bold; background-color: #0984E3; color: white; padding: 6px 14px; border-radius: 6px;")
+        self.veo_studio_btn.setToolTip("Tự động tạo video chuyển động thực tế bằng Google Veo 3 API (phân cảnh, cử chỉ tay chân, tương tác)")
+        self.veo_studio_btn.clicked.connect(self._on_open_veo_studio)
+        action_bar.addWidget(self.veo_studio_btn)
+
         action_bar.addStretch()
 
         self.obs_live_btn = QPushButton("🔴 Phát Lên OBS Live Ngay")
@@ -540,11 +579,34 @@ class ProductShowcaseDialog(QDialog):
     def _update_avatar_display(self) -> None:
         if not self.current_avatar:
             return
+
+        # 1. Look for MP4 video loop
+        vid_path = self.current_avatar.media_path
+        if not vid_path or not vid_path.lower().endswith(".mp4") or not os.path.exists(vid_path):
+            candidate = os.path.splitext(self.current_avatar.preview_image_path or "")[0] + ".mp4"
+            if os.path.exists(candidate):
+                vid_path = candidate
+
+        # If talking video was generated for this product/session, use it
+        if hasattr(self, "generated_video_path") and self.generated_video_path and os.path.exists(self.generated_video_path):
+            vid_path = self.generated_video_path
+
+        if vid_path and os.path.exists(vid_path) and self._avatar_video_player and self.avatar_video_widget:
+            from PySide6.QtMultimedia import QMediaPlayer
+            self.avatar_stack.setCurrentIndex(0)
+            self._avatar_audio_output.setMuted(True)  # Muted idle loop
+            self._avatar_video_player.setSource(QUrl.fromLocalFile(vid_path))
+            self._avatar_video_player.setLoops(QMediaPlayer.Infinite)
+            self._avatar_video_player.play()
+            return
+
+        # 2. Fallback to static preview image
+        self.avatar_stack.setCurrentIndex(1)
         img_path = self.current_avatar.preview_image_path or self.current_avatar.media_path
         if img_path and os.path.exists(img_path):
             pix = QPixmap(img_path)
             self.avatar_preview.setPixmap(
-                pix.scaled(170, 260, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+                pix.scaled(200, 290, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
             )
         else:
             self.avatar_preview.setText(f"💃\n{self.current_avatar.name}")
@@ -662,9 +724,26 @@ class ProductShowcaseDialog(QDialog):
     def _resume_audio(self) -> None:
         if not self.current_audio_path:
             return
-        if self._player:
-            self._player.setSource(QUrl.fromLocalFile(self.current_audio_path))
-            self._player.play()
+
+        has_talking_vid = bool(
+            hasattr(self, "generated_video_path")
+            and self.generated_video_path
+            and os.path.exists(self.generated_video_path)
+        )
+
+        if has_talking_vid and self._avatar_video_player:
+            self.avatar_stack.setCurrentIndex(0)
+            self._avatar_audio_output.setMuted(False)
+            self._avatar_video_player.setSource(QUrl.fromLocalFile(self.generated_video_path))
+            self._avatar_video_player.setLoops(1)
+            self._avatar_video_player.play()
+        else:
+            if self._player:
+                self._player.setSource(QUrl.fromLocalFile(self.current_audio_path))
+                self._player.play()
+            if self._avatar_video_player:
+                self._avatar_video_player.play()
+
         self.is_playing = True
         self.play_btn.setText("⏸️ Tạm Dừng")
         self.stop_btn.setEnabled(True)
@@ -679,6 +758,8 @@ class ProductShowcaseDialog(QDialog):
     def _pause_playback(self) -> None:
         if self._player:
             self._player.pause()
+        if self._avatar_video_player:
+            self._avatar_video_player.pause()
         self.is_playing = False
         self.play_btn.setText("▶️ Tiếp Tục Phát")
         self.play_timer.stop()
@@ -700,6 +781,9 @@ class ProductShowcaseDialog(QDialog):
             "border-radius: 12px; font-weight: bold; font-size: 11px;"
         )
         self.status_tag.setText("Sẵn sàng")
+
+        # Return avatar to natural moving idle loop
+        self._update_avatar_display()
 
     def _on_player_status(self, status) -> None:
         from PySide6.QtMultimedia import QMediaPlayer
@@ -747,12 +831,18 @@ class ProductShowcaseDialog(QDialog):
             self.current_avatar.obs_position = self.pos_combo.currentData() or "bottom_right"
             self.current_avatar.transparent_bg = self.chroma_check.isChecked()
 
+            # If a talking presenter video was generated, stream that talking video!
+            orig_media = self.current_avatar.media_path
+            if hasattr(self, "generated_video_path") and self.generated_video_path and os.path.exists(self.generated_video_path):
+                self.current_avatar.media_path = self.generated_video_path
+
             scene_name = self.settings_service.get_obs_scene()
             ok, msg = self.avatar_service.send_avatar_to_obs(
                 obs_client=self.obs_client,
                 avatar=self.current_avatar,
                 scene_name=scene_name,
             )
+            self.current_avatar.media_path = orig_media
 
             if ok:
                 # If audio is not yet generated, attempt to generate it from the pitch text
@@ -801,6 +891,7 @@ class ProductShowcaseDialog(QDialog):
             logger.exception("Lỗi khi phát Người Mẫu AI lên OBS")
             QMessageBox.critical(self, "Lỗi OBS", f"Đã xảy ra lỗi khi gửi lên OBS: {e}")
 
+    _send_to_obs = _on_send_to_obs
 
     # ----------------- Video Generation -----------------
     def _on_generate_video(self) -> None:
@@ -857,16 +948,45 @@ class ProductShowcaseDialog(QDialog):
             self.status_tag.setText("Lỗi render video")
             return
 
+        self.generated_video_path = vid_path
         # Auto link to product video_path if empty
         if self.product and not self.product.video_path:
             self.product_service.update_product(self.product.id, {"video_path": vid_path})
 
-        self.status_tag.setText("Đã xuất video Người Mẫu AI thành công!")
-        QMessageBox.information(
-            self,
-            "Hoàn tất tạo video",
-            f"✅ {msg}\n\nĐường dẫn video:\n{vid_path}\n\nVideo đã sẵn sàng để phát sóng trên OBS hoặc tải lên mạng xã hội!"
-        )
+        self.status_tag.setText("Đã xuất video Người Mẫu AI nói chuyện thành công!")
+
+        # Immediately play talking video preview in modal!
+        if self._avatar_video_player and os.path.exists(vid_path):
+            from PySide6.QtMultimedia import QMediaPlayer
+            self.avatar_stack.setCurrentIndex(0)
+            self._avatar_audio_output.setMuted(False)  # Unmute to hear speech
+            self._avatar_video_player.setSource(QUrl.fromLocalFile(vid_path))
+            self._avatar_video_player.setLoops(QMediaPlayer.Infinite)
+            self._avatar_video_player.play()
+
+        if self.obs_client and self.obs_client.is_connected:
+            reply = QMessageBox.question(
+                self,
+                "Hoàn tất tạo video",
+                f"✅ {msg}\n\nĐường dẫn video:\n{vid_path}\n\nBạn có muốn phát video Người Mẫu AI cử động nói này lên OBS ngay không?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_send_to_obs()
+        else:
+            QMessageBox.information(
+                self,
+                "Hoàn tất tạo video",
+                f"✅ {msg}\n\nĐường dẫn video:\n{vid_path}\n\nVideo Người Mẫu AI đã sẵn sàng để phát sóng trên OBS hoặc tải lên mạng xã hội!",
+            )
+
+    def _on_open_veo_studio(self) -> None:
+        """Open the dedicated Google Veo 3 Video Studio dialog."""
+        from app.ui.dialogs.veo_showcase_dialog import VeoShowcaseDialog
+        dlg = VeoShowcaseDialog(product=self.product, parent=self)
+        if dlg.exec():
+            # Refresh product data if video was saved
+            self._load_product_data()
 
     def _copy_pitch(self) -> None:
         text = self.pitch_text.toPlainText().strip()
@@ -876,4 +996,6 @@ class ProductShowcaseDialog(QDialog):
 
     def closeEvent(self, event) -> None:
         self._stop_playback()
+        if self._avatar_video_player:
+            self._avatar_video_player.stop()
         super().closeEvent(event)

@@ -42,12 +42,74 @@ class AvatarService:
         self.avatar_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_preset_avatars()
 
-    def _ensure_preset_avatars(self) -> None:
-        """Seed high-quality preset avatars if repository is empty."""
-        try:
-            if self.repo.count() > 0:
-                return
+    # Mapping of preset avatar initials to their bundled image filenames.
+    # These are real AI-generated presenter images with green screen backgrounds,
+    # shipped inside storage/avatars/ in the project directory.
+    # Mapping of preset avatar initials to their bundled filenames (video loop, still image).
+    # Shipped inside storage/avatars/ in the project directory.
+    _BUNDLED_AVATAR_FILES = {
+        "MP": ("mai_phuong.mp4", "mai_phuong.jpg"),
+        "TT": ("thu_thao.mp4", "thu_thao.jpg"),
+        "MK": ("minh_khoi.mp4", "minh_khoi.jpg"),
+        "HĐ": ("hai_dang.mp4", "hai_dang.jpg"),
+    }
 
+    def _get_bundled_avatars_dir(self) -> Path:
+        """Return the path to the bundled avatar images and videos shipped with the project."""
+        from app.config.settings import get_project_root
+        return get_project_root() / "storage" / "avatars"
+
+    def _resolve_avatar_media(self, initial: str, name: str) -> tuple[str, str]:
+        """Copy the bundled AI-generated avatar media (video and photo) to user data dir.
+
+        Returns (media_path, preview_image_path).
+        """
+        bundled_files = self._BUNDLED_AVATAR_FILES.get(initial)
+        video_dest = ""
+        image_dest = ""
+
+        if bundled_files:
+            video_name, image_name = bundled_files
+            bundled_dir = self._get_bundled_avatars_dir()
+
+            # Copy image
+            src_img = bundled_dir / image_name
+            if src_img.exists():
+                dst_img = self.avatar_dir / image_name
+                if not dst_img.exists():
+                    shutil.copy2(str(src_img), str(dst_img))
+                    logger.info("Đã copy ảnh người mẫu AI: {} → {}", src_img.name, dst_img)
+                image_dest = str(dst_img)
+
+            # Copy video loop
+            src_vid = bundled_dir / video_name
+            if src_vid.exists():
+                dst_vid = self.avatar_dir / video_name
+                if not dst_vid.exists():
+                    shutil.copy2(str(src_vid), str(dst_vid))
+                    logger.info("Đã copy video loop người mẫu AI: {} → {}", src_vid.name, dst_vid)
+                video_dest = str(dst_vid)
+
+        # Fallbacks
+        if not image_dest:
+            image_dest = self._generate_avatar_placeholder(name, initial)
+        if not video_dest:
+            video_dest = image_dest
+
+        return video_dest, image_dest
+
+    def _resolve_avatar_image(self, initial: str, name: str) -> str:
+        """Backward-compatible helper returning the preview image path."""
+        _, img_path = self._resolve_avatar_media(initial, name)
+        return img_path
+
+    def _ensure_preset_avatars(self) -> None:
+        """Seed high-quality preset avatars with real AI-generated images if repository is empty.
+
+        Also upgrades existing avatars that still point to old gray placeholder images
+        to use the new bundled AI-generated presenter images.
+        """
+        try:
             presets = [
                 {
                     "name": "Mai Phương — MC Thời Trang & Mỹ Phẩm",
@@ -61,7 +123,6 @@ class AvatarService:
                     "chroma_key_color": "#00FF00",
                     "obs_position": "bottom_right",
                     "obs_scale": 0.38,
-                    "avatar_color": "#FD79A8",
                     "initial": "MP",
                 },
                 {
@@ -76,7 +137,6 @@ class AvatarService:
                     "chroma_key_color": "#00FF00",
                     "obs_position": "bottom_right",
                     "obs_scale": 0.38,
-                    "avatar_color": "#6C5CE7",
                     "initial": "TT",
                 },
                 {
@@ -91,7 +151,6 @@ class AvatarService:
                     "chroma_key_color": "#00FF00",
                     "obs_position": "bottom_right",
                     "obs_scale": 0.38,
-                    "avatar_color": "#0984E3",
                     "initial": "MK",
                 },
                 {
@@ -106,20 +165,25 @@ class AvatarService:
                     "chroma_key_color": "#00FF00",
                     "obs_position": "bottom_left",
                     "obs_scale": 0.38,
-                    "avatar_color": "#00B894",
                     "initial": "HĐ",
                 },
             ]
 
+            if self.repo.count() > 0:
+                # Upgrade existing avatars: replace old placeholders with real images
+                self._upgrade_existing_avatars_images(presets)
+                return
+
+            # First-time seed: create all 4 preset avatars with real videos and images
             for p in presets:
-                thumb_path = self._generate_avatar_art(p["name"], p["avatar_color"], p["initial"])
+                vid_path, img_path = self._resolve_avatar_media(p["initial"], p["name"])
                 self.repo.create(
                     name=p["name"],
                     gender=p["gender"],
                     style=p["style"],
                     avatar_type=p["avatar_type"],
-                    media_path=thumb_path,
-                    preview_image_path=thumb_path,
+                    media_path=vid_path,
+                    preview_image_path=img_path,
                     transparent_bg=p["transparent_bg"],
                     chroma_key_color=p["chroma_key_color"],
                     voice_id=p["voice_id"],
@@ -128,16 +192,58 @@ class AvatarService:
                     obs_position=p["obs_position"],
                     obs_scale=p["obs_scale"],
                 )
-            logger.info("Đã khởi tạo 4 Người Mẫu AI mẫu trong hệ thống.")
+            logger.info("Đã khởi tạo 4 Người Mẫu AI với video loop và ảnh AI thực tế (green screen) trong hệ thống.")
         except Exception as e:
             logger.exception("Lỗi khi khởi tạo Người Mẫu AI mẫu: {}", e)
 
-    def _generate_avatar_art(self, name: str, bg_hex: str, initial: str) -> str:
-        """Create a placeholder indicator image — NOT a usable avatar.
+    def _upgrade_existing_avatars_images(self, presets: list) -> None:
+        """Upgrade existing preset avatars to use real bundled MP4 video loops and JPG photos."""
+        existing_avatars = self.repo.get_all(active_only=False)
+        preset_map = {}
+        for p in presets:
+            short_name = p["name"].split("—")[0].strip()
+            preset_map[short_name] = p
 
-        Bug #2 fix: previous version drew geometric shapes that looked terrible
-        on stream. This now creates a clearly-labeled placeholder that won't
-        be mistaken for a real presenter.
+        for avatar in existing_avatars:
+            short_name = avatar.name.split("—")[0].strip()
+            preset = preset_map.get(short_name)
+            if not preset:
+                # Custom avatar or missing media
+                if not avatar.media_path or not os.path.exists(avatar.media_path):
+                    def_vid, def_img = self._resolve_avatar_media("MP", "Mai Phương")
+                    self.repo.update(avatar.id, media_path=def_vid, preview_image_path=def_img)
+                continue
+
+            needs_upgrade = False
+            current_media = avatar.media_path or ""
+
+            if not current_media or not os.path.exists(current_media):
+                needs_upgrade = True
+            elif current_media.endswith(".png"):
+                needs_upgrade = True
+            elif current_media.endswith(".jpg"):
+                # Upgrade from static JPG to MP4 video loop
+                needs_upgrade = True
+
+            if needs_upgrade:
+                vid_path, img_path = self._resolve_avatar_media(preset["initial"], preset["name"])
+                if vid_path:
+                    self.repo.update(
+                        avatar.id,
+                        media_path=vid_path,
+                        preview_image_path=img_path,
+                    )
+                    logger.info(
+                        "Đã nâng cấp người mẫu AI '{}' → video loop '{}'",
+                        avatar.name,
+                        os.path.basename(vid_path),
+                    )
+
+    def _generate_avatar_placeholder(self, name: str, initial: str) -> str:
+        """Create a styled placeholder image as last resort when bundled images are unavailable.
+
+        This generates a professional-looking silhouette on green screen background,
+        suitable for chroma key, rather than the old ugly gray placeholder.
         """
         filename = f"avatar_{initial.lower()}_{abs(hash(name)) % 10000}.png"
         out_path = self.avatar_dir / filename
@@ -147,31 +253,68 @@ class AvatarService:
         try:
             from PIL import Image, ImageDraw
 
-            width, height = 400, 600
-            # Gray background — NOT green screen, to make it obvious this is a placeholder
-            img = Image.new("RGBA", (width, height), (60, 60, 60, 255))
+            width, height = 720, 1080
+            # Green screen background — ready for chroma key
+            img = Image.new("RGB", (width, height), (0, 200, 0))
             draw = ImageDraw.Draw(img)
 
-            # Hex to RGB helper
-            h = bg_hex.lstrip("#")
-            if len(h) == 6:
-                bg_rgb = tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
-            else:
-                bg_rgb = (108, 92, 231)
+            cx, cy = width // 2, 200
 
-            # Draw a camera icon placeholder instead of fake person
-            draw.rounded_rectangle([40, 60, 360, 540], radius=24, fill=(80, 80, 80))
-            draw.text((200, 200), "📷", anchor="mm")
-            draw.text((200, 300), "PLACEHOLDER", fill=(200, 200, 200), anchor="mm")
-            short_name = name.split("—")[0].strip()
-            draw.text((200, 340), f"{short_name}", fill=(150, 150, 150), anchor="mm")
-            draw.text((200, 420), "Thêm clip thật", fill=bg_rgb, anchor="mm")
-            draw.text((200, 450), "để sử dụng", fill=bg_rgb, anchor="mm")
+            # Head
+            draw.ellipse([cx - 55, cy - 55, cx + 55, cy + 55], fill=(70, 70, 80))
 
-            img.save(str(out_path))
+            # Neck
+            draw.rectangle([cx - 18, cy + 50, cx + 18, cy + 90], fill=(70, 70, 80))
+
+            # Body
+            draw.polygon(
+                [(cx - 100, cy + 90), (cx - 120, cy + 350),
+                 (cx + 120, cy + 350), (cx + 100, cy + 90)],
+                fill=(50, 50, 60),
+            )
+
+            # Arms
+            draw.polygon(
+                [(cx - 100, cy + 90), (cx - 130, cy + 300),
+                 (cx - 90, cy + 300), (cx - 65, cy + 120)],
+                fill=(50, 50, 60),
+            )
+            draw.polygon(
+                [(cx + 100, cy + 90), (cx + 130, cy + 300),
+                 (cx + 90, cy + 300), (cx + 65, cy + 120)],
+                fill=(50, 50, 60),
+            )
+
+            # Hands
+            draw.ellipse([cx - 135, cy + 280, cx - 85, cy + 330], fill=(70, 70, 80))
+            draw.ellipse([cx + 85, cy + 280, cx + 135, cy + 330], fill=(70, 70, 80))
+
+            # Legs
+            draw.polygon(
+                [(cx - 100, cy + 340), (cx - 90, cy + 650),
+                 (cx - 30, cy + 650), (cx - 10, cy + 340)],
+                fill=(40, 40, 45),
+            )
+            draw.polygon(
+                [(cx + 10, cy + 340), (cx + 30, cy + 650),
+                 (cx + 90, cy + 650), (cx + 100, cy + 340)],
+                fill=(40, 40, 45),
+            )
+
+            # Shoes
+            draw.ellipse([cx - 95, cy + 640, cx - 25, cy + 680], fill=(30, 30, 30))
+            draw.ellipse([cx + 25, cy + 640, cx + 95, cy + 680], fill=(30, 30, 30))
+
+            # Face features
+            draw.ellipse([cx - 25, cy - 15, cx - 10, cy], fill=(255, 255, 255))
+            draw.ellipse([cx + 10, cy - 15, cx + 25, cy], fill=(255, 255, 255))
+            draw.arc([cx - 20, cy + 10, cx + 20, cy + 35], 0, 180, fill=(255, 255, 255), width=2)
+
+            img.save(str(out_path), quality=95)
+            logger.info("Đã tạo ảnh placeholder green screen cho '{}': {}", name, out_path)
             return str(out_path)
         except Exception as e:
-            logger.warning("Không thể tạo avatar art: {}", e)
+            logger.warning("Không thể tạo avatar placeholder: {}", e)
             return ""
 
 
@@ -354,62 +497,37 @@ class AvatarService:
 
         safe_name = output_name or f"avatar_pitch_{avatar.id}_{os.path.basename(audio_path).split('.')[0]}.mp4"
         out_video_path = self.settings.effective_media_dir / safe_name
-
         ffmpeg_cmd = self.settings.ffmpeg_path or "ffmpeg"
+
         try:
-            # Probe audio duration
-            duration = self.voice_service.get_audio_duration(audio_path)
-            if duration <= 0:
-                duration = 10.0
+            # Locate base image for facial animation
+            source_image = avatar.preview_image_path or avatar.media_path or ""
+            if source_image.lower().endswith(".mp4"):
+                jpg_candidate = Path(source_image).with_suffix(".jpg")
+                if jpg_candidate.exists():
+                    source_image = str(jpg_candidate)
 
-            # If input is image, loop image over audio duration
-            ext = os.path.splitext(source_media)[1].lower()
-            if ext in (".png", ".jpg", ".jpeg", ".webp"):
-                cmd = [
-                    ffmpeg_cmd,
-                    "-y",
-                    "-loop", "1",
-                    "-i", str(source_media),
-                    "-i", str(audio_path),
-                    "-c:v", "libx264",
-                    "-tune", "stillimage",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-pix_fmt", "yuv420p",
-                    "-t", f"{duration:.2f}",
-                    "-shortest",
-                    str(out_video_path),
-                ]
-            else:
-                # Video loop combined with audio
-                cmd = [
-                    ffmpeg_cmd,
-                    "-y",
-                    "-stream_loop", "-1",
-                    "-i", str(source_media),
-                    "-i", str(audio_path),
-                    "-map", "0:v:0",
-                    "-map", "1:a:0",
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
-                    "-b:a", "192k",
-                    "-t", f"{duration:.2f}",
-                    "-shortest",
-                    str(out_video_path),
-                ]
+            if not os.path.exists(source_image):
+                return None, "Không tìm thấy file hình ảnh gốc của Người Mẫu AI để tạo cử động nói."
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+            # Use AvatarAnimator to generate realistic speech lip-sync, nodding, and blinking
+            from app.render.avatar_animator import AvatarAnimator
+            animator = AvatarAnimator(ffmpeg_bin=ffmpeg_cmd)
+
+            await asyncio.to_thread(
+                animator.generate_talking_video,
+                image_path=source_image,
+                audio_path=audio_path,
+                output_mp4=out_video_path,
+                fps=25,
             )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0 and out_video_path.exists():
-                return str(out_video_path), f"Đã tạo video Người Mẫu AI giới thiệu ({duration:.1f}s) thành công!"
+
+            if out_video_path.exists():
+                duration = self.voice_service.get_audio_duration(audio_path)
+                return str(out_video_path), f"Đã tạo video Người Mẫu AI cử động nói và giới thiệu ({duration:.1f}s) thành công!"
             else:
-                err_msg = stderr.decode(errors="replace")[-300:]
-                logger.warning("FFmpeg render avatar video failed: {}", err_msg)
-                return None, f"Lỗi render video: {err_msg}"
+                return None, "Không tìm thấy tệp video sau khi xuất."
+
         except Exception as e:
-            logger.exception("Error in composite video generation: {}", e)
-            return None, f"Lỗi tạo video: {e}"
+            logger.exception("Error in AvatarAnimator talking video generation: {}", e)
+            return None, f"Lỗi tạo video cử động nói: {e}"

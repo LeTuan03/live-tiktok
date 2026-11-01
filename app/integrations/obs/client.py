@@ -10,6 +10,7 @@ Design rules (see spec §7):
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -578,10 +579,18 @@ class OBSClient:
         if not self.is_connected:
             return False
         try:
+            # If an image is provided but a video loop exists, use the MP4 for ffmpeg_source
+            video_file = file_path
+            image_file = file_path
+            if file_path and file_path.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                mp4_candidate = os.path.splitext(file_path)[0] + ".mp4"
+                if os.path.exists(mp4_candidate):
+                    video_file = mp4_candidate
+
             settings: dict[str, Any] = {
                 "is_local_file": True,
-                "local_file": file_path or "",
-                "file": file_path or "",
+                "local_file": video_file or "",
+                "file": image_file or "",
                 "looping": loop,
                 "restart_on_activate": True,
                 "clear_on_media_end": False,

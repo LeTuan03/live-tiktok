@@ -160,6 +160,7 @@ class MainWindow(QMainWindow):
 
         # --- Cross-page wiring ---
         self._dashboard_page.navigate_requested.connect(self.navigate_to)
+        self._product_page.stream_now_requested.connect(self._on_product_stream_now)
         self._live_page.obs_status_changed.connect(self.update_obs_status)
         self._live_page.live_state_changed.connect(self._dashboard_page.update_live_state)
         self._settings_page.settings_saved.connect(self._on_settings_saved)
@@ -223,6 +224,10 @@ class MainWindow(QMainWindow):
     def navigate_to(self, index: int) -> None:
         if 0 <= index < self._content_stack.count():
             self._nav_list.setCurrentRow(index)
+
+    def _on_product_stream_now(self) -> None:
+        self.navigate_to(7)
+        self._live_page.refresh_playlists()
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < self._content_stack.count():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -39,6 +40,7 @@ from app.services.product_extractor_service import ProductExtractorService
 from app.services.product_service import ProductService
 from app.services.script_service import ScriptService
 from app.services.settings_service import SettingsService
+from app.ui.dialogs.auto_showcase_batch_dialog import AutoShowcaseBatchDialog
 from app.ui.dialogs.link_media_dialog import LinkProductToMediaDialog
 from app.ui.dialogs.product_showcase_dialog import ProductShowcaseDialog
 from app.ui.styles.dark_theme import COLORS
@@ -493,6 +495,8 @@ class ProductFormDialog(QDialog):
 class ProductPage(QWidget):
     """Full product management page with table, search, filter, and CRUD."""
 
+    stream_now_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._service = ProductService()
@@ -531,14 +535,14 @@ class ProductPage(QWidget):
         # Search
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("🔍 Tìm kiếm sản phẩm...")
-        self._search_input.setMinimumWidth(250)
+        self._search_input.setMinimumWidth(220)
         self._search_input.textChanged.connect(self._on_search_changed)
         toolbar.addWidget(self._search_input)
 
         # Category filter
         self._category_filter = QComboBox()
         self._category_filter.addItem("Tất cả danh mục", "")
-        self._category_filter.setMinimumWidth(160)
+        self._category_filter.setMinimumWidth(150)
         self._category_filter.currentIndexChanged.connect(self._on_category_changed)
         toolbar.addWidget(self._category_filter)
 
@@ -559,7 +563,15 @@ class ProductPage(QWidget):
         add_link_btn.clicked.connect(self._on_add_product_from_link)
         toolbar.addWidget(add_link_btn)
 
-        showcase_toolbar_btn = QPushButton("💃 Người Mẫu AI Giới Thiệu")
+        auto_batch_btn = QPushButton("✨ Tạo Video & Live Tự Động (1-Click)")
+        auto_batch_btn.setToolTip("Hệ thống tự động render video Người Mẫu AI cho từng sản phẩm và xếp thành kịch bản Live hoàn chỉnh")
+        auto_batch_btn.setStyleSheet(
+            "background-color: #f43f5e; color: #ffffff; font-weight: bold; padding: 6px 14px; border-radius: 6px;"
+        )
+        auto_batch_btn.clicked.connect(self._on_open_auto_batch_showcase)
+        toolbar.addWidget(auto_batch_btn)
+
+        showcase_toolbar_btn = QPushButton("💃 Người Mẫu Giới Thiệu")
         showcase_toolbar_btn.setToolTip("Mở phòng giới thiệu sản phẩm với Người Mẫu Ảo (AI Presenter Showcase)")
         showcase_toolbar_btn.setStyleSheet(
             f"color: {COLORS['accent_secondary']}; border: 1px solid {COLORS['accent_secondary']}; "
@@ -567,6 +579,14 @@ class ProductPage(QWidget):
         )
         showcase_toolbar_btn.clicked.connect(self._on_showcase_selected)
         toolbar.addWidget(showcase_toolbar_btn)
+
+        veo_toolbar_btn = QPushButton("✨ Video Veo 3 AI")
+        veo_toolbar_btn.setToolTip("Tự động tạo video bán hàng cử chỉ chân thực bằng Google Veo 3")
+        veo_toolbar_btn.setStyleSheet(
+            "background-color: #0984E3; color: #ffffff; font-weight: bold; padding: 6px 14px; border-radius: 6px;"
+        )
+        veo_toolbar_btn.clicked.connect(self._on_open_veo_selected)
+        toolbar.addWidget(veo_toolbar_btn)
 
         add_btn = QPushButton("➕ Thêm sản phẩm")
         add_btn.setObjectName("primaryButton")
@@ -687,7 +707,12 @@ class ProductPage(QWidget):
 
             media_btn = QPushButton("🎬")
             media_btn.setFixedSize(32, 28)
-            media_btn.setToolTip("Gắn video/audio cho sản phẩm (dùng khi LIVE)")
+            has_video = bool(product.video_path and os.path.exists(product.video_path))
+            if has_video:
+                media_btn.setToolTip(f"Đã có video giới thiệu: {os.path.basename(product.video_path)}")
+                media_btn.setStyleSheet("border: 1px solid #10b981; color: #10b981; font-weight: bold;")
+            else:
+                media_btn.setToolTip("Gắn video/audio cho sản phẩm (dùng khi LIVE)")
             media_btn.clicked.connect(lambda _, pid=product.id, pname=product.name: self._link_media(pid, pname))
             action_layout.addWidget(media_btn)
 
@@ -780,6 +805,32 @@ class ProductPage(QWidget):
     def _showcase_product(self, product_id: int) -> None:
         dlg = ProductShowcaseDialog(product_id, self)
         dlg.exec()
+
+    def _on_open_veo_selected(self) -> None:
+        row = self._table.currentRow()
+        if row < 0:
+            if self._table.rowCount() > 0:
+                row = 0
+            else:
+                QMessageBox.information(self, "Thông báo", "Vui lòng chọn một sản phẩm trong danh sách.")
+                return
+        product_id = self._table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        product = self._service.get_product(product_id)
+        if not product:
+            return
+        from app.ui.dialogs.veo_showcase_dialog import VeoShowcaseDialog
+        dlg = VeoShowcaseDialog(product=product, parent=self)
+        dlg.exec()
+        self.refresh_data()
+
+    def _on_open_auto_batch_showcase(self) -> None:
+        dlg = AutoShowcaseBatchDialog(self)
+        dlg.stream_now_requested.connect(self._on_stream_now_requested)
+        dlg.exec()
+        self.refresh_data()
+
+    def _on_stream_now_requested(self) -> None:
+        self.stream_now_requested.emit()
 
     def _on_edit_product(self) -> None:
         row = self._table.currentRow()
