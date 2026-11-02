@@ -1,0 +1,613 @@
+diff --git a/.env.example b/.env.example
+index c8bff24..45e1cad 100644
+--- a/.env.example
++++ b/.env.example
+@@ -12,6 +12,12 @@
+ # LIVEFLOW_LLM_PROVIDER=gemini             # gemini | openai
+ # LIVEFLOW_GEMINI_API_KEY=                 # lấy tại https://aistudio.google.com/app/apikey
+ # LIVEFLOW_GEMINI_MODEL=gemini-3.5-flash
++
++# --- Video AI người thật (Google Gemini Omni / Veo) ---
++# LIVEFLOW_VEO_MODEL=gemini-omni-1.1-flash
++# LIVEFLOW_VEO_RESOLUTION=720p              # 360p | 720p | 1080p
++# LIVEFLOW_VEO_USE_NATIVE_AUDIO=true        # true: người mẫu tự nói tiếng Việt (khớp khẩu hình); false: dùng Edge-TTS
++# LIVEFLOW_VEO_ALLOW_LOCAL_FALLBACK=false   # true: khi lỗi cloud thì chuyển sang cử động 2D nhẹ; false: báo lỗi chi tiết
+ # LIVEFLOW_OPENAI_API_KEY=
+ # LIVEFLOW_OPENAI_BASE_URL=                # VD Ollama: http://localhost:11434/v1
+ # LIVEFLOW_OPENAI_MODEL=gpt-4o-mini
+diff --git a/app/config/settings.py b/app/config/settings.py
+index 66c301f..b63b73b 100644
+--- a/app/config/settings.py
++++ b/app/config/settings.py
+@@ -154,12 +154,18 @@ class AppSettings(BaseSettings):
+     did_api_key: str = ""
+     heygen_api_key: str = ""
+ 
+-    # --- Google Veo 3 Video Generation ---
+-    veo_model: str = "veo-3.1-fast-generate-preview"
+-    veo_fallback_model: str = "veo-3.1-generate-preview"
++    # --- Google AI video generation (Gemini Omni / Veo) ---
++    # Veo 3.1 *preview* models were retired on Google AI Studio; default is Gemini Omni Flash,
++    # which works with standard Gemini API keys via the Interactions API.
++    veo_model: str = "gemini-omni-1.1-flash"
++    veo_fallback_model: str = ""
+     veo_aspect_ratio: str = "9:16"
+     veo_duration_seconds: int = 5
+     veo_resolution: str = "720p"
++    # When cloud generation fails: False = show the error; True = silently fallback to local 2D animator
++    veo_allow_local_fallback: bool = False
++    # True = keep speech generated directly by the video model (lip-synced); False = replace with Edge-TTS
++    veo_use_native_audio: bool = True
+ 
+     @property
+     def effective_avatar_dir(self) -> Path:
+diff --git a/app/integrations/ffmpeg/ffprobe_service.py b/app/integrations/ffmpeg/ffprobe_service.py
+index eab9f1c..9e8f523 100644
+--- a/app/integrations/ffmpeg/ffprobe_service.py
++++ b/app/integrations/ffmpeg/ffprobe_service.py
+@@ -73,6 +73,10 @@ class FFProbeResult:
+     def is_audio(self) -> bool:
+         return self._audio_stream is not None and not self.is_video
+ 
++    @property
++    def has_audio(self) -> bool:
++        return self._audio_stream is not None
++
+     @property
+     def media_type(self) -> str:
+         return "video" if self.is_video else "audio"
+diff --git a/app/integrations/veo/veo_client.py b/app/integrations/veo/veo_client.py
+index d1ca5ad..ad37656 100644
+--- a/app/integrations/veo/veo_client.py
++++ b/app/integrations/veo/veo_client.py
+@@ -24,8 +24,9 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+ class VeoClient:
+     """Client for Google Veo 3 / 3.1 video generation API."""
+ 
+-    DEFAULT_MODEL = "veo-3.1-fast-generate-preview"
+-    FALLBACK_MODEL = "veo-3.1-generate-preview"
++    DEFAULT_MODEL = "gemini-omni-1.1-flash"
++    FALLBACK_MODEL = ""
++    OMNI_PREFIX = "gemini-omni"
+ 
+     def __init__(
+         self,
+@@ -34,12 +35,40 @@ class VeoClient:
+         timeout: int = 360,
+     ) -> None:
+         settings = get_settings()
+-        self.api_key = (api_key or settings.gemini_api_key or os.getenv("LIVEFLOW_GEMINI_API_KEY", "")).strip()
++        self.api_key = self._resolve_api_key(api_key)
+         self.model_name = (model_name or settings.veo_model or self.DEFAULT_MODEL).strip()
+-        self.fallback_model = (settings.veo_fallback_model or self.FALLBACK_MODEL).strip()
++        self.fallback_model = (settings.veo_fallback_model or "").strip()
+         self.timeout = timeout
+ 
++    @staticmethod
++    def _resolve_api_key(explicit: Optional[str] = None) -> str:
++        """Find the Gemini key the same way the LLM provider does.
++
++        Order: explicit argument -> key saved in Settings (Windows Credential Manager / DB)
++        -> GEMINI_API_KEY / LIVEFLOW_GEMINI_API_KEY env vars -> settings.gemini_api_key.
++        """
++        if explicit and explicit.strip():
++            return explicit.strip()
++        try:
++            from app.database.session import get_db
++            from app.services.settings_service import KEY_GEMINI_API_KEY, SettingsService
++
++            with get_db() as db:
++                saved = SettingsService(db).get_setting(KEY_GEMINI_API_KEY, "")
++                if saved and saved.strip():
++                    return saved.strip()
++        except Exception as e:
++            logger.debug("Không đọc được Gemini key từ Cài đặt: {}", e)
++        return (
++            os.getenv("GEMINI_API_KEY", "")
++            or os.getenv("LIVEFLOW_GEMINI_API_KEY", "")
++            or get_settings().gemini_api_key
++            or ""
++        ).strip()
++
+     def _validate_api_key(self) -> None:
++        if not self.api_key:
++            self.api_key = self._resolve_api_key()
+         if not self.api_key:
+             raise ValueError(
+                 "Chưa cấu hình Google Gemini API Key. "
+@@ -77,7 +106,7 @@ class VeoClient:
+         audio_path: Optional[str | Path] = None,
+         shot_type: str = "HOOK",
+     ) -> str:
+-        """Generate a video clip using Google Veo or Studio AI Motion & Lip-Sync Engine.
++        """Generate a video clip using Google Gemini Omni / Veo or Studio AI Motion & Lip-Sync Engine.
+ 
+         Args:
+             prompt: Text prompt describing the video scene, movement, camera angle.
+@@ -95,16 +124,49 @@ class VeoClient:
+         Returns:
+             Absolute path to the generated MP4 file.
+         """
+-        # If model is known to be deprecated by Google AI Studio (only available on GCP Vertex AI enterprise),
+-        # seamlessly activate the Studio AI Motion & Lip-Sync Engine without wasting time on 404 calls.
++        allow_local = bool(get_settings().veo_allow_local_fallback)
++
++        # Gemini Omni: real AI video from a standard Gemini API key via Interactions API
++        if self.model_name.startswith(self.OMNI_PREFIX):
++            try:
++                return await self._generate_omni_video(
++                    prompt=prompt,
++                    image_bytes=image_bytes,
++                    image_path=image_path,
++                    mime_type=mime_type,
++                    aspect_ratio=aspect_ratio,
++                    resolution=resolution,
++                    output_path=output_path,
++                    progress_callback=progress_callback,
++                )
++            except Exception as e:
++                logger.error("Gemini Omni tạo video thất bại: {}", e)
++                if not allow_local:
++                    raise
++                logger.warning("veo_allow_local_fallback=True -> dùng engine cục bộ (ảnh tĩnh cử động nhẹ).")
++                return await self._generate_kinetic_scene_video(
++                    image_path=image_path,
++                    image_bytes=image_bytes,
++                    duration_seconds=duration_seconds,
++                    output_path=output_path,
++                    progress_callback=progress_callback,
++                    audio_path=audio_path,
++                    shot_type=shot_type,
++                )
++
++        # Model flagged as deprecated on Google AI Studio
+         if self.model_name in self.DEPRECATED_MODELS and not os.getenv("LIVEFLOW_VEO_VERTEX_ENDPOINT"):
+-            logger.info(
+-                "Mô hình '{}' đã được Google chuyển sang gói doanh nghiệp Vertex AI. "
+-                "Tự động kích hoạt Studio AI Motion & Lip-Sync Engine để render video sống động...",
++            if not allow_local:
++                raise RuntimeError(
++                    f"Model '{self.model_name}' không còn khả dụng trên Google AI Studio. "
++                    f"Vui lòng đặt LIVEFLOW_VEO_MODEL={self.DEFAULT_MODEL} hoặc chọn model video hợp lệ."
++                )
++            logger.warning(
++                "Mô hình '{}' không khả dụng; veo_allow_local_fallback=True -> dùng engine cục bộ.",
+                 self.model_name,
+             )
+             if progress_callback:
+-                progress_callback("Kích hoạt Studio AI Motion & Lip-Sync Engine...", 40)
++                progress_callback("Kích hoạt engine cục bộ (ảnh tĩnh cử động nhẹ)...", 40)
+             return await self._generate_kinetic_scene_video(
+                 image_path=image_path,
+                 image_bytes=image_bytes,
+@@ -169,9 +231,12 @@ class VeoClient:
+                     continue
+                 raise
+ 
+-        # Fallback to local AI Motion Engine if cloud API is unreachable
+-        logger.info(
+-            "Tự động kích hoạt Studio AI Motion & Lip-Sync Engine để render video hoàn thiện..."
++        if not allow_local:
++            raise RuntimeError(f"Không tạo được video bằng Veo: {last_error or 'không có model khả dụng'}")
++
++        # Fallback to local AI Motion Engine (only when explicitly allowed)
++        logger.warning(
++            "veo_allow_local_fallback=True -> dùng engine cục bộ (ảnh tĩnh cử động nhẹ)."
+         )
+         if progress_callback:
+             progress_callback("Studio AI Motion & Lip-Sync Engine đang render video...", 50)
+@@ -185,6 +250,187 @@ class VeoClient:
+             shot_type=shot_type,
+         )
+ 
++    # ------------------------------------------------------------------
++    # Gemini Omni (POST /v1beta/interactions, synchronous, URI delivery)
++    # ------------------------------------------------------------------
++    @classmethod
++    def _find_video_item(cls, node: Any) -> Optional[Dict[str, Any]]:
++        """Find the first video item that carries bytes or a URI."""
++        if isinstance(node, dict):
++            is_video = (
++                node.get("type") == "video"
++                or str(node.get("mime_type", "")).startswith("video/")
++                or (isinstance(node.get("uri"), str) and ("/files/" in node["uri"] or ".mp4" in node["uri"]))
++            )
++            if is_video and (node.get("data") or node.get("uri")):
++                return node
++            for value in node.values():
++                found = cls._find_video_item(value)
++                if found:
++                    return found
++        elif isinstance(node, list):
++            for value in node:
++                found = cls._find_video_item(value)
++                if found:
++                    return found
++        return None
++
++    @staticmethod
++    def _file_id_from_uri(uri: str) -> str:
++        """Extract the Files-API id from a ``.../files/<id>:download?alt=media`` URI."""
++        if "/files/" not in uri:
++            return ""
++        tail = uri.split("/files/", 1)[1]
++        return tail.split(":", 1)[0].split("?", 1)[0].strip("/")
++
++    async def _generate_omni_video(
++        self,
++        prompt: str,
++        image_bytes: Optional[bytes],
++        image_path: Optional[str | Path],
++        mime_type: str,
++        aspect_ratio: str,
++        resolution: str,
++        output_path: Optional[str | Path],
++        progress_callback: Optional[Callable[[str, int], None]],
++    ) -> str:
++        """Generate a real AI video clip (with native audio) using Gemini Omni."""
++        import json
++        import uuid
++
++        self._validate_api_key()
++
++        if image_path and not image_bytes:
++            p = Path(image_path)
++            if p.exists():
++                async with aiofiles.open(p, "rb") as f:
++                    image_bytes = await f.read()
++                mime_type = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
++
++        content: list[Dict[str, Any]] = []
++        if image_bytes:
++            content.append(
++                {
++                    "type": "image",
++                    "data": base64.b64encode(image_bytes).decode("utf-8"),
++                    "mime_type": mime_type,
++                }
++            )
++        content.append({"type": "text", "text": prompt})
++
++        payload: Dict[str, Any] = {
++            "model": self.model_name,
++            "input": content,
++            "response_format": {
++                "type": "video",
++                "aspect_ratio": aspect_ratio,
++                "resolution": resolution,
++                "delivery": "uri",  # videos can exceed inline limits
++            },
++        }
++
++        if output_path:
++            dest = Path(output_path)
++            dest.parent.mkdir(parents=True, exist_ok=True)
++        else:
++            dest = get_settings().effective_veo_dir / f"omni_{uuid.uuid4().hex[:12]}.mp4"
++
++        if progress_callback:
++            progress_callback(f"Đang gửi yêu cầu tới Gemini Omni ({self.model_name})...", 10)
++        logger.info("Gemini Omni: model={} aspect={} res={}", self.model_name, aspect_ratio, resolution)
++
++        # Call is synchronous on Google server; allow up to 360s
++        connector = aiohttp.TCPConnector(ssl=False)
++        timeout = aiohttp.ClientTimeout(total=max(self.timeout, 300))
++        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
++            post_url = f"{API_BASE}/interactions"
++            if "key=" not in post_url:
++                post_url += f"?key={self.api_key}"
++            async with session.post(post_url, headers=self._headers(), json=payload) as resp:
++                text = await resp.text()
++                if resp.status != 200:
++                    raise RuntimeError(f"Gemini Omni lỗi [{resp.status}]: {text[:600]}")
++                try:
++                    data = json.loads(text)
++                except Exception:
++                    raise RuntimeError(f"Gemini Omni trả về dữ liệu không đọc được: {text[:300]}")
++
++            item = self._find_video_item(data)
++            if not item:
++                raise RuntimeError(f"Gemini Omni không trả về video: {text[:600]}")
++
++            if progress_callback:
++                progress_callback("Gemini Omni đã tạo xong, đang tải video về máy...", 70)
++
++            if item.get("data"):
++                async with aiofiles.open(dest, "wb") as f:
++                    await f.write(base64.b64decode(item["data"]))
++            else:
++                await self._download_omni_file(session, str(item["uri"]), dest)
++
++        if not dest.exists() or dest.stat().st_size < 10_000:
++            raise RuntimeError("Video Gemini Omni tải về bị rỗng hoặc hỏng.")
++
++        if progress_callback:
++            progress_callback("Tạo video Gemini Omni hoàn tất!", 100)
++        logger.info("Đã lưu video Gemini Omni tại: {}", dest)
++        return str(dest)
++
++    async def _download_omni_file(self, session: aiohttp.ClientSession, uri: str, dest: Path) -> None:
++        """Wait until the generated file is ACTIVE on the Files API, then download it."""
++        import time
++
++        started = time.monotonic()
++        file_id = self._file_id_from_uri(uri)
++
++        if file_id:
++            while True:
++                poll_url = f"{API_BASE}/files/{file_id}"
++                if "key=" not in poll_url:
++                    poll_url += f"?key={self.api_key}"
++                async with session.get(poll_url, headers=self._headers()) as resp:
++                    if resp.status == 200:
++                        try:
++                            info = await resp.json()
++                            state = str(info.get("state", "")).upper()
++                            if state in ("ACTIVE", "SUCCEEDED"):
++                                break
++                            if state in ("FAILED", "ERROR"):
++                                raise RuntimeError("Google báo lỗi khi xử lý file video (state=FAILED).")
++                        except Exception as e:
++                            if "state=FAILED" in str(e):
++                                raise
++                if time.monotonic() - started > self.timeout:
++                    raise TimeoutError("Quá thời gian chờ file video sẵn sàng trên Google.")
++                await asyncio.sleep(3)
++
++        if file_id:
++            url = f"{API_BASE}/files/{file_id}:download?alt=media"
++        else:
++            url = uri
++            if ":download" not in url and "alt=media" not in url:
++                sep = "&" if "?" in url else "?"
++                url = f"{url}{sep}alt=media"
++
++        if "generativelanguage.googleapis.com" in url and "key=" not in url:
++            sep = "&" if "?" in url else "?"
++            url = f"{url}{sep}key={self.api_key}"
++
++        last_status = 0
++        for _ in range(6):  # allow a few retries if file is just transitioning
++            async with session.get(url, headers=self._headers()) as resp:
++                last_status = resp.status
++                if resp.status == 200:
++                    async with aiofiles.open(dest, "wb") as f:
++                        while True:
++                            chunk = await resp.content.read(65536)
++                            if not chunk:
++                                break
++                            await f.write(chunk)
++                    return
++            await asyncio.sleep(3)
++        raise RuntimeError(f"Không tải được video từ Google (HTTP {last_status}).")
++
+     async def _execute_generation(
+         self,
+         model: str,
+diff --git a/app/render/veo_stitcher.py b/app/render/veo_stitcher.py
+index 1c61c6a..4be83ed 100644
+--- a/app/render/veo_stitcher.py
++++ b/app/render/veo_stitcher.py
+@@ -36,32 +36,54 @@ class VeoStitcher:
+             pass
+         return 5.0
+ 
++    def has_audio_stream(self, file_path: str | Path) -> bool:
++        """True if the media file contains at least one audio stream."""
++        try:
++            probe = self.ffprobe.probe(file_path)
++            if probe:
++                return probe.has_audio or any(
++                    st.get("codec_type") == "audio" for st in probe.raw.get("streams", [])
++                )
++        except Exception:
++            pass
++        return False
++
+     async def align_scene_video_audio(
+         self,
+         video_path: str | Path,
+-        audio_path: str | Path,
+-        output_path: str | Path,
++        audio_path: Optional[str | Path] = None,
++        output_path: str | Path = "",
+         caption_text: Optional[str] = None,
++        use_video_audio: bool = False,
+     ) -> str:
+         """Synchronize video clip duration with TTS audio and add clean captions.
+ 
++        When ``use_video_audio`` is True the clip keeps its own (model-generated) speech and
++        ``audio_path`` is ignored, so the mouth keeps matching the voice.
++
+         Args:
+-            video_path: Path to Veo 3 generated MP4 clip.
+-            audio_path: Path to TTS spoken audio file.
++            video_path: Path to Veo/Gemini generated MP4 clip.
++            audio_path: Path to TTS spoken audio file (optional if use_video_audio=True).
+             output_path: Target path for the synchronized scene clip.
+             caption_text: Spoken sentence to burn into the bottom of the video.
++            use_video_audio: Keep native audio from the video clip instead of replacing it.
+ 
+         Returns:
+             Path to synchronized MP4 clip.
+         """
+         video_p = Path(video_path)
+-        audio_p = Path(audio_path)
++        audio_p = Path(audio_path) if audio_path else None
+         out_p = Path(output_path)
+         out_p.parent.mkdir(parents=True, exist_ok=True)
+ 
+         vid_dur = self.get_duration(video_p)
+-        aud_dur = self.get_duration(audio_p)
+-        target_dur = max(vid_dur, aud_dur + 0.2)
++        if use_video_audio or audio_p is None:
++            use_video_audio = True
++            aud_dur = 0.0
++            target_dur = vid_dur
++        else:
++            aud_dur = self.get_duration(audio_p)
++            target_dur = max(vid_dur, aud_dur + 0.2)
+ 
+         logger.info(
+             "Align scene: video_dur={:.2f}s, audio_dur={:.2f}s -> target={:.2f}s",
+@@ -110,10 +132,11 @@ class VeoStitcher:
+             "-hwaccel", "none",
+             "-y",
+             "-i", str(video_p),
+-            "-i", str(audio_p),
+-            "-filter_complex", f"[0:v]{vf_str}[v];[1:a]apad[a]",
+-            "-map", "[v]",
+-            "-map", "[a]",
++            *(
++                ["-filter_complex", f"[0:v]{vf_str}[v]", "-map", "[v]", "-map", "0:a?"]
++                if use_video_audio
++                else ["-i", str(audio_p), "-filter_complex", f"[0:v]{vf_str}[v];[1:a]apad[a]", "-map", "[v]", "-map", "[a]"]
++            ),
+             "-t", f"{target_dur:.2f}",
+             "-c:v", "libx264",
+             "-preset", "fast",
+@@ -137,7 +160,11 @@ class VeoStitcher:
+             err_msg = stderr.decode("utf-8", errors="replace")
+             logger.warning("FFmpeg align cảnh báo lỗi ({}): {}", proc.returncode, err_msg[-300:])
+             # Fallback simple merge without complex filter if error
+-            await self._fallback_merge(video_p, audio_p, out_p, target_dur)
++            if use_video_audio:
++                import shutil
++                shutil.copy2(str(video_p), str(out_p))
++            else:
++                await self._fallback_merge(video_p, audio_p, out_p, target_dur)
+ 
+         return str(out_p)
+ 
+diff --git a/app/services/veo_showcase_service.py b/app/services/veo_showcase_service.py
+index ad28e67..38be229 100644
+--- a/app/services/veo_showcase_service.py
++++ b/app/services/veo_showcase_service.py
+@@ -180,12 +180,27 @@ class VeoShowcaseService:
+ 
+         target_scene.status = "GENERATING"
+ 
+-        # 1. Generate Raw Video from Veo
++        # 1. Generate Raw Video from Gemini Omni / Veo
+         raw_video_filename = f"{project.project_id}_scene_{scene_index}_raw.mp4"
+         raw_video_path = self.settings.effective_veo_dir / raw_video_filename
+ 
++        native_audio = bool(self.settings.veo_use_native_audio) and self.veo_client.model_name.startswith(
++            self.veo_client.OMNI_PREFIX
++        )
++        prompt = target_scene.veo_prompt
++        if native_audio and target_scene.speech_text:
++            # The video model speaks the line itself, so the mouth matches the voice.
++            prompt = (
++                f"{prompt}\n\n"
++                "Use the provided image as the first frame and keep the same person, outfit and product. "
++                "The presenter looks at the camera and says the following line in Vietnamese, "
++                "with a natural, energetic voice and matching lip movement: "
++                f'"{target_scene.speech_text}". '
++                f"Clip length about {target_scene.duration_seconds} seconds."
++            )
++
+         raw_clip = await self.veo_client.generate_video(
+-            prompt=target_scene.veo_prompt,
++            prompt=prompt,
+             image_path=ref_frame,
+             aspect_ratio="9:16",
+             duration_seconds=target_scene.duration_seconds,
+@@ -203,7 +218,16 @@ class VeoShowcaseService:
+         aligned_filename = f"{project.project_id}_scene_{scene_index}_aligned.mp4"
+         aligned_path = self.settings.effective_veo_dir / aligned_filename
+ 
+-        if target_scene.audio_path and Path(target_scene.audio_path).exists():
++        if native_audio and self.stitcher.has_audio_stream(raw_clip):
++            # Keep model's own speech (lip-synced); normalize resolution and burn in subtitles
++            final_clip = await self.stitcher.align_scene_video_audio(
++                video_path=raw_clip,
++                audio_path=None,
++                output_path=aligned_path,
++                caption_text=target_scene.speech_text,
++                use_video_audio=True,
++            )
++        elif target_scene.audio_path and Path(target_scene.audio_path).exists():
+             final_clip = await self.stitcher.align_scene_video_audio(
+                 video_path=raw_clip,
+                 audio_path=target_scene.audio_path,
+diff --git a/app/ui/dialogs/product_showcase_dialog.py b/app/ui/dialogs/product_showcase_dialog.py
+index 7a28bd4..35d915f 100644
+--- a/app/ui/dialogs/product_showcase_dialog.py
++++ b/app/ui/dialogs/product_showcase_dialog.py
+@@ -512,9 +512,9 @@ class ProductShowcaseDialog(QDialog):
+         self.video_gen_btn.clicked.connect(self._on_generate_video)
+         action_bar.addWidget(self.video_gen_btn)
+ 
+-        self.veo_studio_btn = QPushButton("✨ Tạo Video Veo 3 Tự Động")
++        self.veo_studio_btn = QPushButton("✨ Tạo Video AI Người Thật (Gemini)")
+         self.veo_studio_btn.setStyleSheet("font-weight: bold; background-color: #0984E3; color: white; padding: 6px 14px; border-radius: 6px;")
+-        self.veo_studio_btn.setToolTip("Tự động tạo video chuyển động thực tế bằng Google Veo 3 API (phân cảnh, cử chỉ tay chân, tương tác)")
++        self.veo_studio_btn.setToolTip("Tự động tạo video AI chuyển động người thật nói chuyện bằng Google AI (Gemini Omni / Veo)")
+         self.veo_studio_btn.clicked.connect(self._on_open_veo_studio)
+         action_bar.addWidget(self.veo_studio_btn)
+ 
+@@ -895,6 +895,29 @@ class ProductShowcaseDialog(QDialog):
+ 
+     # ----------------- Video Generation -----------------
+     def _on_generate_video(self) -> None:
++        try:
++            from app.integrations.veo.veo_client import VeoClient
++
++            has_gemini_key = bool(VeoClient._resolve_api_key())
++        except Exception:
++            has_gemini_key = False
++
++        if has_gemini_key:
++            reply = QMessageBox.question(
++                self,
++                "Chọn Phương Thức Tạo Video",
++                "Bạn đã cấu hình Google Gemini API Key!\n\n"
++                "• Chọn 'Yes' để mở Studio Video AI Người Thật (Gemini Omni) — video người thật chuyển động tự nhiên, khớp khẩu hình nói tiếng Việt.\n\n"
++                "• Chọn 'No' để tiếp tục tạo Video Người Mẫu 2D nhanh (cử động cục bộ, offline).",
++                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
++                QMessageBox.StandardButton.Yes,
++            )
++            if reply == QMessageBox.StandardButton.Yes:
++                self._on_open_veo_studio()
++                return
++            elif reply == QMessageBox.StandardButton.Cancel:
++                return
++
+         if not self.current_avatar:
+             QMessageBox.warning(self, "Thông báo", "Vui lòng chọn Người Mẫu AI.")
+             return
+diff --git a/app/ui/dialogs/veo_showcase_dialog.py b/app/ui/dialogs/veo_showcase_dialog.py
+index 9d6b073..ba6f37b 100644
+--- a/app/ui/dialogs/veo_showcase_dialog.py
++++ b/app/ui/dialogs/veo_showcase_dialog.py
+@@ -171,7 +171,7 @@ class VeoShowcaseDialog(QDialog):
+         self.service = VeoShowcaseService(session=self.session)
+         self.project: Optional[VeoProject] = None
+ 
+-        self.setWindowTitle(f"Google Veo 3 Video Studio — {product.name}")
++        self.setWindowTitle(f"Studio Video AI Bán Hàng (Gemini Omni / Veo) — {product.name}")
+         self.resize(1200, 800)
+         self.setMinimumSize(1000, 680)
+ 
+@@ -203,16 +203,17 @@ class VeoShowcaseDialog(QDialog):
+ 
+         title_box = QVBoxLayout()
+         title_box.setSpacing(2)
+-        title_lbl = QLabel(f"Tạo Video Bán Hàng Veo 3 — {self.product.name}")
++        title_lbl = QLabel(f"Tạo Video AI Người Thật — {self.product.name}")
+         title_lbl.setStyleSheet("font-size: 17px; font-weight: bold; color: #FFFFFF;")
+         title_box.addWidget(title_lbl)
+ 
+-        sub_lbl = QLabel("Tự động viết kịch bản, tạo cử chỉ người mẫu tương tác với sản phẩm bằng Google Veo 3 API")
++        sub_lbl = QLabel("Tự động viết kịch bản, cử động chân thực và khớp giọng nói bằng Google AI (Gemini Omni / Veo)")
+         sub_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
+         title_box.addWidget(sub_lbl)
+         header.addLayout(title_box, 1)
+ 
+-        model_badge = QLabel("⚡ Model: Veo 3.1 Fast")
++        active_model = self.settings.veo_model or "gemini-omni-1.1-flash"
++        model_badge = QLabel(f"⚡ Model: {active_model}")
+         model_badge.setStyleSheet(
+             "background-color: #0984E3; color: white; padding: 6px 12px; border-radius: 12px; font-weight: bold; font-size: 11px;"
+         )

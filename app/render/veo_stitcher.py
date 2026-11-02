@@ -36,32 +36,54 @@ class VeoStitcher:
             pass
         return 5.0
 
+    def has_audio_stream(self, file_path: str | Path) -> bool:
+        """True if the media file contains at least one audio stream."""
+        try:
+            probe = self.ffprobe.probe(file_path)
+            if probe:
+                return probe.has_audio or any(
+                    st.get("codec_type") == "audio" for st in probe.raw.get("streams", [])
+                )
+        except Exception:
+            pass
+        return False
+
     async def align_scene_video_audio(
         self,
         video_path: str | Path,
-        audio_path: str | Path,
-        output_path: str | Path,
+        audio_path: Optional[str | Path] = None,
+        output_path: str | Path = "",
         caption_text: Optional[str] = None,
+        use_video_audio: bool = False,
     ) -> str:
         """Synchronize video clip duration with TTS audio and add clean captions.
 
+        When ``use_video_audio`` is True the clip keeps its own (model-generated) speech and
+        ``audio_path`` is ignored, so the mouth keeps matching the voice.
+
         Args:
-            video_path: Path to Veo 3 generated MP4 clip.
-            audio_path: Path to TTS spoken audio file.
+            video_path: Path to Veo/Gemini generated MP4 clip.
+            audio_path: Path to TTS spoken audio file (optional if use_video_audio=True).
             output_path: Target path for the synchronized scene clip.
             caption_text: Spoken sentence to burn into the bottom of the video.
+            use_video_audio: Keep native audio from the video clip instead of replacing it.
 
         Returns:
             Path to synchronized MP4 clip.
         """
         video_p = Path(video_path)
-        audio_p = Path(audio_path)
+        audio_p = Path(audio_path) if audio_path else None
         out_p = Path(output_path)
         out_p.parent.mkdir(parents=True, exist_ok=True)
 
         vid_dur = self.get_duration(video_p)
-        aud_dur = self.get_duration(audio_p)
-        target_dur = max(vid_dur, aud_dur + 0.2)
+        if use_video_audio or audio_p is None:
+            use_video_audio = True
+            aud_dur = 0.0
+            target_dur = vid_dur
+        else:
+            aud_dur = self.get_duration(audio_p)
+            target_dur = max(vid_dur, aud_dur + 0.2)
 
         logger.info(
             "Align scene: video_dur={:.2f}s, audio_dur={:.2f}s -> target={:.2f}s",
@@ -110,10 +132,11 @@ class VeoStitcher:
             "-hwaccel", "none",
             "-y",
             "-i", str(video_p),
-            "-i", str(audio_p),
-            "-filter_complex", f"[0:v]{vf_str}[v];[1:a]apad[a]",
-            "-map", "[v]",
-            "-map", "[a]",
+            *(
+                ["-filter_complex", f"[0:v]{vf_str}[v]", "-map", "[v]", "-map", "0:a?"]
+                if use_video_audio
+                else ["-i", str(audio_p), "-filter_complex", f"[0:v]{vf_str}[v];[1:a]apad[a]", "-map", "[v]", "-map", "[a]"]
+            ),
             "-t", f"{target_dur:.2f}",
             "-c:v", "libx264",
             "-preset", "fast",
@@ -137,7 +160,11 @@ class VeoStitcher:
             err_msg = stderr.decode("utf-8", errors="replace")
             logger.warning("FFmpeg align cảnh báo lỗi ({}): {}", proc.returncode, err_msg[-300:])
             # Fallback simple merge without complex filter if error
-            await self._fallback_merge(video_p, audio_p, out_p, target_dur)
+            if use_video_audio:
+                import shutil
+                shutil.copy2(str(video_p), str(out_p))
+            else:
+                await self._fallback_merge(video_p, audio_p, out_p, target_dur)
 
         return str(out_p)
 

@@ -24,8 +24,9 @@ API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 class VeoClient:
     """Client for Google Veo 3 / 3.1 video generation API."""
 
-    DEFAULT_MODEL = "veo-3.1-fast-generate-preview"
-    FALLBACK_MODEL = "veo-3.1-generate-preview"
+    DEFAULT_MODEL = "gemini-omni-1.1-flash"
+    FALLBACK_MODEL = ""
+    OMNI_PREFIX = "gemini-omni"
 
     def __init__(
         self,
@@ -34,12 +35,40 @@ class VeoClient:
         timeout: int = 360,
     ) -> None:
         settings = get_settings()
-        self.api_key = (api_key or settings.gemini_api_key or os.getenv("LIVEFLOW_GEMINI_API_KEY", "")).strip()
+        self.api_key = self._resolve_api_key(api_key)
         self.model_name = (model_name or settings.veo_model or self.DEFAULT_MODEL).strip()
-        self.fallback_model = (settings.veo_fallback_model or self.FALLBACK_MODEL).strip()
+        self.fallback_model = (settings.veo_fallback_model or "").strip()
         self.timeout = timeout
 
+    @staticmethod
+    def _resolve_api_key(explicit: Optional[str] = None) -> str:
+        """Find the Gemini key the same way the LLM provider does.
+
+        Order: explicit argument -> key saved in Settings (Windows Credential Manager / DB)
+        -> GEMINI_API_KEY / LIVEFLOW_GEMINI_API_KEY env vars -> settings.gemini_api_key.
+        """
+        if explicit and explicit.strip():
+            return explicit.strip()
+        try:
+            from app.database.session import get_db
+            from app.services.settings_service import KEY_GEMINI_API_KEY, SettingsService
+
+            with get_db() as db:
+                saved = SettingsService(db).get_setting(KEY_GEMINI_API_KEY, "")
+                if saved and saved.strip():
+                    return saved.strip()
+        except Exception as e:
+            logger.debug("Không đọc được Gemini key từ Cài đặt: {}", e)
+        return (
+            os.getenv("GEMINI_API_KEY", "")
+            or os.getenv("LIVEFLOW_GEMINI_API_KEY", "")
+            or get_settings().gemini_api_key
+            or ""
+        ).strip()
+
     def _validate_api_key(self) -> None:
+        if not self.api_key:
+            self.api_key = self._resolve_api_key()
         if not self.api_key:
             raise ValueError(
                 "Chưa cấu hình Google Gemini API Key. "
@@ -77,7 +106,7 @@ class VeoClient:
         audio_path: Optional[str | Path] = None,
         shot_type: str = "HOOK",
     ) -> str:
-        """Generate a video clip using Google Veo or Studio AI Motion & Lip-Sync Engine.
+        """Generate a video clip using Google Gemini Omni / Veo or Studio AI Motion & Lip-Sync Engine.
 
         Args:
             prompt: Text prompt describing the video scene, movement, camera angle.
@@ -95,16 +124,49 @@ class VeoClient:
         Returns:
             Absolute path to the generated MP4 file.
         """
-        # If model is known to be deprecated by Google AI Studio (only available on GCP Vertex AI enterprise),
-        # seamlessly activate the Studio AI Motion & Lip-Sync Engine without wasting time on 404 calls.
+        allow_local = bool(get_settings().veo_allow_local_fallback)
+
+        # Gemini Omni: real AI video from a standard Gemini API key via Interactions API
+        if self.model_name.startswith(self.OMNI_PREFIX):
+            try:
+                return await self._generate_omni_video(
+                    prompt=prompt,
+                    image_bytes=image_bytes,
+                    image_path=image_path,
+                    mime_type=mime_type,
+                    aspect_ratio=aspect_ratio,
+                    resolution=resolution,
+                    output_path=output_path,
+                    progress_callback=progress_callback,
+                )
+            except Exception as e:
+                logger.error("Gemini Omni tạo video thất bại: {}", e)
+                if not allow_local:
+                    raise
+                logger.warning("veo_allow_local_fallback=True -> dùng engine cục bộ (ảnh tĩnh cử động nhẹ).")
+                return await self._generate_kinetic_scene_video(
+                    image_path=image_path,
+                    image_bytes=image_bytes,
+                    duration_seconds=duration_seconds,
+                    output_path=output_path,
+                    progress_callback=progress_callback,
+                    audio_path=audio_path,
+                    shot_type=shot_type,
+                )
+
+        # Model flagged as deprecated on Google AI Studio
         if self.model_name in self.DEPRECATED_MODELS and not os.getenv("LIVEFLOW_VEO_VERTEX_ENDPOINT"):
-            logger.info(
-                "Mô hình '{}' đã được Google chuyển sang gói doanh nghiệp Vertex AI. "
-                "Tự động kích hoạt Studio AI Motion & Lip-Sync Engine để render video sống động...",
+            if not allow_local:
+                raise RuntimeError(
+                    f"Model '{self.model_name}' không còn khả dụng trên Google AI Studio. "
+                    f"Vui lòng đặt LIVEFLOW_VEO_MODEL={self.DEFAULT_MODEL} hoặc chọn model video hợp lệ."
+                )
+            logger.warning(
+                "Mô hình '{}' không khả dụng; veo_allow_local_fallback=True -> dùng engine cục bộ.",
                 self.model_name,
             )
             if progress_callback:
-                progress_callback("Kích hoạt Studio AI Motion & Lip-Sync Engine...", 40)
+                progress_callback("Kích hoạt engine cục bộ (ảnh tĩnh cử động nhẹ)...", 40)
             return await self._generate_kinetic_scene_video(
                 image_path=image_path,
                 image_bytes=image_bytes,
@@ -169,9 +231,12 @@ class VeoClient:
                     continue
                 raise
 
-        # Fallback to local AI Motion Engine if cloud API is unreachable
-        logger.info(
-            "Tự động kích hoạt Studio AI Motion & Lip-Sync Engine để render video hoàn thiện..."
+        if not allow_local:
+            raise RuntimeError(f"Không tạo được video bằng Veo: {last_error or 'không có model khả dụng'}")
+
+        # Fallback to local AI Motion Engine (only when explicitly allowed)
+        logger.warning(
+            "veo_allow_local_fallback=True -> dùng engine cục bộ (ảnh tĩnh cử động nhẹ)."
         )
         if progress_callback:
             progress_callback("Studio AI Motion & Lip-Sync Engine đang render video...", 50)
@@ -184,6 +249,187 @@ class VeoClient:
             audio_path=audio_path,
             shot_type=shot_type,
         )
+
+    # ------------------------------------------------------------------
+    # Gemini Omni (POST /v1beta/interactions, synchronous, URI delivery)
+    # ------------------------------------------------------------------
+    @classmethod
+    def _find_video_item(cls, node: Any) -> Optional[Dict[str, Any]]:
+        """Find the first video item that carries bytes or a URI."""
+        if isinstance(node, dict):
+            is_video = (
+                node.get("type") == "video"
+                or str(node.get("mime_type", "")).startswith("video/")
+                or (isinstance(node.get("uri"), str) and ("/files/" in node["uri"] or ".mp4" in node["uri"]))
+            )
+            if is_video and (node.get("data") or node.get("uri")):
+                return node
+            for value in node.values():
+                found = cls._find_video_item(value)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for value in node:
+                found = cls._find_video_item(value)
+                if found:
+                    return found
+        return None
+
+    @staticmethod
+    def _file_id_from_uri(uri: str) -> str:
+        """Extract the Files-API id from a ``.../files/<id>:download?alt=media`` URI."""
+        if "/files/" not in uri:
+            return ""
+        tail = uri.split("/files/", 1)[1]
+        return tail.split(":", 1)[0].split("?", 1)[0].strip("/")
+
+    async def _generate_omni_video(
+        self,
+        prompt: str,
+        image_bytes: Optional[bytes],
+        image_path: Optional[str | Path],
+        mime_type: str,
+        aspect_ratio: str,
+        resolution: str,
+        output_path: Optional[str | Path],
+        progress_callback: Optional[Callable[[str, int], None]],
+    ) -> str:
+        """Generate a real AI video clip (with native audio) using Gemini Omni."""
+        import json
+        import uuid
+
+        self._validate_api_key()
+
+        if image_path and not image_bytes:
+            p = Path(image_path)
+            if p.exists():
+                async with aiofiles.open(p, "rb") as f:
+                    image_bytes = await f.read()
+                mime_type = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+
+        content: list[Dict[str, Any]] = []
+        if image_bytes:
+            content.append(
+                {
+                    "type": "image",
+                    "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    "mime_type": mime_type,
+                }
+            )
+        content.append({"type": "text", "text": prompt})
+
+        payload: Dict[str, Any] = {
+            "model": self.model_name,
+            "input": content,
+            "response_format": {
+                "type": "video",
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "delivery": "uri",  # videos can exceed inline limits
+            },
+        }
+
+        if output_path:
+            dest = Path(output_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            dest = get_settings().effective_veo_dir / f"omni_{uuid.uuid4().hex[:12]}.mp4"
+
+        if progress_callback:
+            progress_callback(f"Đang gửi yêu cầu tới Gemini Omni ({self.model_name})...", 10)
+        logger.info("Gemini Omni: model={} aspect={} res={}", self.model_name, aspect_ratio, resolution)
+
+        # Call is synchronous on Google server; allow up to 360s
+        connector = aiohttp.TCPConnector(ssl=False)
+        timeout = aiohttp.ClientTimeout(total=max(self.timeout, 300))
+        async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+            post_url = f"{API_BASE}/interactions"
+            if "key=" not in post_url:
+                post_url += f"?key={self.api_key}"
+            async with session.post(post_url, headers=self._headers(), json=payload) as resp:
+                text = await resp.text()
+                if resp.status != 200:
+                    raise RuntimeError(f"Gemini Omni lỗi [{resp.status}]: {text[:600]}")
+                try:
+                    data = json.loads(text)
+                except Exception:
+                    raise RuntimeError(f"Gemini Omni trả về dữ liệu không đọc được: {text[:300]}")
+
+            item = self._find_video_item(data)
+            if not item:
+                raise RuntimeError(f"Gemini Omni không trả về video: {text[:600]}")
+
+            if progress_callback:
+                progress_callback("Gemini Omni đã tạo xong, đang tải video về máy...", 70)
+
+            if item.get("data"):
+                async with aiofiles.open(dest, "wb") as f:
+                    await f.write(base64.b64decode(item["data"]))
+            else:
+                await self._download_omni_file(session, str(item["uri"]), dest)
+
+        if not dest.exists() or dest.stat().st_size < 10_000:
+            raise RuntimeError("Video Gemini Omni tải về bị rỗng hoặc hỏng.")
+
+        if progress_callback:
+            progress_callback("Tạo video Gemini Omni hoàn tất!", 100)
+        logger.info("Đã lưu video Gemini Omni tại: {}", dest)
+        return str(dest)
+
+    async def _download_omni_file(self, session: aiohttp.ClientSession, uri: str, dest: Path) -> None:
+        """Wait until the generated file is ACTIVE on the Files API, then download it."""
+        import time
+
+        started = time.monotonic()
+        file_id = self._file_id_from_uri(uri)
+
+        if file_id:
+            while True:
+                poll_url = f"{API_BASE}/files/{file_id}"
+                if "key=" not in poll_url:
+                    poll_url += f"?key={self.api_key}"
+                async with session.get(poll_url, headers=self._headers()) as resp:
+                    if resp.status == 200:
+                        try:
+                            info = await resp.json()
+                            state = str(info.get("state", "")).upper()
+                            if state in ("ACTIVE", "SUCCEEDED"):
+                                break
+                            if state in ("FAILED", "ERROR"):
+                                raise RuntimeError("Google báo lỗi khi xử lý file video (state=FAILED).")
+                        except Exception as e:
+                            if "state=FAILED" in str(e):
+                                raise
+                if time.monotonic() - started > self.timeout:
+                    raise TimeoutError("Quá thời gian chờ file video sẵn sàng trên Google.")
+                await asyncio.sleep(3)
+
+        if file_id:
+            url = f"{API_BASE}/files/{file_id}:download?alt=media"
+        else:
+            url = uri
+            if ":download" not in url and "alt=media" not in url:
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}alt=media"
+
+        if "generativelanguage.googleapis.com" in url and "key=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}key={self.api_key}"
+
+        last_status = 0
+        for _ in range(6):  # allow a few retries if file is just transitioning
+            async with session.get(url, headers=self._headers()) as resp:
+                last_status = resp.status
+                if resp.status == 200:
+                    async with aiofiles.open(dest, "wb") as f:
+                        while True:
+                            chunk = await resp.content.read(65536)
+                            if not chunk:
+                                break
+                            await f.write(chunk)
+                    return
+            await asyncio.sleep(3)
+        raise RuntimeError(f"Không tải được video từ Google (HTTP {last_status}).")
 
     async def _execute_generation(
         self,

@@ -180,12 +180,27 @@ class VeoShowcaseService:
 
         target_scene.status = "GENERATING"
 
-        # 1. Generate Raw Video from Veo
+        # 1. Generate Raw Video from Gemini Omni / Veo
         raw_video_filename = f"{project.project_id}_scene_{scene_index}_raw.mp4"
         raw_video_path = self.settings.effective_veo_dir / raw_video_filename
 
+        native_audio = bool(self.settings.veo_use_native_audio) and self.veo_client.model_name.startswith(
+            self.veo_client.OMNI_PREFIX
+        )
+        prompt = target_scene.veo_prompt
+        if native_audio and target_scene.speech_text:
+            # The video model speaks the line itself, so the mouth matches the voice.
+            prompt = (
+                f"{prompt}\n\n"
+                "Use the provided image as the first frame and keep the same person, outfit and product. "
+                "The presenter looks at the camera and says the following line in Vietnamese, "
+                "with a natural, energetic voice and matching lip movement: "
+                f'"{target_scene.speech_text}". '
+                f"Clip length about {target_scene.duration_seconds} seconds."
+            )
+
         raw_clip = await self.veo_client.generate_video(
-            prompt=target_scene.veo_prompt,
+            prompt=prompt,
             image_path=ref_frame,
             aspect_ratio="9:16",
             duration_seconds=target_scene.duration_seconds,
@@ -203,7 +218,16 @@ class VeoShowcaseService:
         aligned_filename = f"{project.project_id}_scene_{scene_index}_aligned.mp4"
         aligned_path = self.settings.effective_veo_dir / aligned_filename
 
-        if target_scene.audio_path and Path(target_scene.audio_path).exists():
+        if native_audio and self.stitcher.has_audio_stream(raw_clip):
+            # Keep model's own speech (lip-synced); normalize resolution and burn in subtitles
+            final_clip = await self.stitcher.align_scene_video_audio(
+                video_path=raw_clip,
+                audio_path=None,
+                output_path=aligned_path,
+                caption_text=target_scene.speech_text,
+                use_video_audio=True,
+            )
+        elif target_scene.audio_path and Path(target_scene.audio_path).exists():
             final_clip = await self.stitcher.align_scene_video_audio(
                 video_path=raw_clip,
                 audio_path=target_scene.audio_path,

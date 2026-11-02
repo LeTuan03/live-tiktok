@@ -171,7 +171,7 @@ class VeoShowcaseDialog(QDialog):
         self.service = VeoShowcaseService(session=self.session)
         self.project: Optional[VeoProject] = None
 
-        self.setWindowTitle(f"Google Veo 3 Video Studio — {product.name}")
+        self.setWindowTitle(f"Studio Video AI Bán Hàng (Gemini Omni / Veo) — {product.name}")
         self.resize(1200, 800)
         self.setMinimumSize(1000, 680)
 
@@ -203,16 +203,17 @@ class VeoShowcaseDialog(QDialog):
 
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
-        title_lbl = QLabel(f"Tạo Video Bán Hàng Veo 3 — {self.product.name}")
+        title_lbl = QLabel(f"Tạo Video AI Người Thật — {self.product.name}")
         title_lbl.setStyleSheet("font-size: 17px; font-weight: bold; color: #FFFFFF;")
         title_box.addWidget(title_lbl)
 
-        sub_lbl = QLabel("Tự động viết kịch bản, tạo cử chỉ người mẫu tương tác với sản phẩm bằng Google Veo 3 API")
+        sub_lbl = QLabel("Tự động viết kịch bản, cử động chân thực và khớp giọng nói bằng Google AI (Gemini Omni / Veo)")
         sub_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
         title_box.addWidget(sub_lbl)
         header.addLayout(title_box, 1)
 
-        model_badge = QLabel("⚡ Model: Veo 3.1 Fast")
+        active_model = self.settings.veo_model or "gemini-omni-1.1-flash"
+        model_badge = QLabel(f"⚡ Model: {active_model}")
         model_badge.setStyleSheet(
             "background-color: #0984E3; color: white; padding: 6px 12px; border-radius: 12px; font-weight: bold; font-size: 11px;"
         )

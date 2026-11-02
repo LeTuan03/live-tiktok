@@ -74,6 +74,10 @@ class FFProbeResult:
         return self._audio_stream is not None and not self.is_video
 
     @property
+    def has_audio(self) -> bool:
+        return self._audio_stream is not None
+
+    @property
     def media_type(self) -> str:
         return "video" if self.is_video else "audio"
 

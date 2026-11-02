@@ -154,12 +154,18 @@ class AppSettings(BaseSettings):
     did_api_key: str = ""
     heygen_api_key: str = ""
 
-    # --- Google Veo 3 Video Generation ---
-    veo_model: str = "veo-3.1-fast-generate-preview"
-    veo_fallback_model: str = "veo-3.1-generate-preview"
+    # --- Google AI video generation (Gemini Omni / Veo) ---
+    # Veo 3.1 *preview* models were retired on Google AI Studio; default is Gemini Omni Flash,
+    # which works with standard Gemini API keys via the Interactions API.
+    veo_model: str = "gemini-omni-1.1-flash"
+    veo_fallback_model: str = ""
     veo_aspect_ratio: str = "9:16"
     veo_duration_seconds: int = 5
     veo_resolution: str = "720p"
+    # When cloud generation fails: False = show the error; True = silently fallback to local 2D animator
+    veo_allow_local_fallback: bool = False
+    # True = keep speech generated directly by the video model (lip-synced); False = replace with Edge-TTS
+    veo_use_native_audio: bool = True
 
     @property
     def effective_avatar_dir(self) -> Path:

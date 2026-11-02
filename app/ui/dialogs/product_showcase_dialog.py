@@ -512,9 +512,9 @@ class ProductShowcaseDialog(QDialog):
         self.video_gen_btn.clicked.connect(self._on_generate_video)
         action_bar.addWidget(self.video_gen_btn)
 
-        self.veo_studio_btn = QPushButton("✨ Tạo Video Veo 3 Tự Động")
+        self.veo_studio_btn = QPushButton("✨ Tạo Video AI Người Thật (Gemini)")
         self.veo_studio_btn.setStyleSheet("font-weight: bold; background-color: #0984E3; color: white; padding: 6px 14px; border-radius: 6px;")
-        self.veo_studio_btn.setToolTip("Tự động tạo video chuyển động thực tế bằng Google Veo 3 API (phân cảnh, cử chỉ tay chân, tương tác)")
+        self.veo_studio_btn.setToolTip("Tự động tạo video AI chuyển động người thật nói chuyện bằng Google AI (Gemini Omni / Veo)")
         self.veo_studio_btn.clicked.connect(self._on_open_veo_studio)
         action_bar.addWidget(self.veo_studio_btn)
 
@@ -895,6 +895,29 @@ class ProductShowcaseDialog(QDialog):
 
     # ----------------- Video Generation -----------------
     def _on_generate_video(self) -> None:
+        try:
+            from app.integrations.veo.veo_client import VeoClient
+
+            has_gemini_key = bool(VeoClient._resolve_api_key())
+        except Exception:
+            has_gemini_key = False
+
+        if has_gemini_key:
+            reply = QMessageBox.question(
+                self,
+                "Chọn Phương Thức Tạo Video",
+                "Bạn đã cấu hình Google Gemini API Key!\n\n"
+                "• Chọn 'Yes' để mở Studio Video AI Người Thật (Gemini Omni) — video người thật chuyển động tự nhiên, khớp khẩu hình nói tiếng Việt.\n\n"
+                "• Chọn 'No' để tiếp tục tạo Video Người Mẫu 2D nhanh (cử động cục bộ, offline).",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._on_open_veo_studio()
+                return
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+
         if not self.current_avatar:
             QMessageBox.warning(self, "Thông báo", "Vui lòng chọn Người Mẫu AI.")
             return
