@@ -137,6 +137,8 @@ def run_all_checks() -> list[DependencyCheckResult]:
         check_python_package("pydantic_settings", "pydantic-settings"),
         check_python_package("aiohttp", "aiohttp"),
         check_python_package("edge_tts", "edge-tts"),
+        check_python_package("numpy", "numpy"),
+        check_python_package("PIL", "Pillow"),
         check_python_package("obsws_python", "obsws-python"),
         check_python_package("bs4", "beautifulsoup4", required=False),
         check_python_package("keyring", "keyring", required=False),

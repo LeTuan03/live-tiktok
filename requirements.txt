@@ -34,3 +34,8 @@ loguru>=0.7.0
 
 # Images
 Pillow>=10.3.0
+
+# Xử lý khung hình cho Người Mẫu AI (lip-sync, chroma key, cử động)
+# BẮT BUỘC: app/render/avatar_animator.py và app/services/auto_showcase_service.py cần numpy,
+# thiếu nó là cửa sổ chính không mở được.
+numpy>=1.26.0

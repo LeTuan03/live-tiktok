@@ -95,7 +95,9 @@ class VeoScriptService:
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=0.7,
-                max_tokens=1500,
+                # Mỗi phân cảnh tốn ~450-550 token (thoại tiếng Việt + veo_prompt tiếng Anh).
+                # Để quá thấp thì JSON bị cắt giữa chừng -> parse hỏng -> rơi về template chết.
+                max_tokens=max(2500, 900 * num_scenes + 1500),
             )
             parsed = self._parse_json_response(raw_text, product, num_scenes)
             if parsed and parsed.scenes:
@@ -103,8 +105,22 @@ class VeoScriptService:
                 if avatar:
                     parsed.avatar_id = avatar.id
                 return parsed
+
+            # Parse hỏng: ghi rõ lý do thay vì im lặng dùng template.
+            tail = (raw_text or "")[-160:].replace("\n", " ")
+            logger.error(
+                "Không đọc được JSON kịch bản Veo (độ dài {} ký tự, có thể bị cắt). "
+                "Đang dùng template dự phòng — kịch bản sẽ CHUNG CHUNG, không bám sản phẩm. "
+                "Đuôi phản hồi: ...{}",
+                len(raw_text or ""),
+                tail,
+            )
         except Exception as e:
-            logger.warning("Lỗi gọi LLM sinh kịch bản Veo ({}), chuyển sang template dự phòng", e)
+            logger.error(
+                "Lỗi gọi LLM sinh kịch bản Veo ({}), chuyển sang template dự phòng — "
+                "kịch bản sẽ CHUNG CHUNG, không bám sản phẩm.",
+                e,
+            )
 
         # Fallback template
         return self._create_fallback_script(product, avatar, num_scenes)
@@ -133,6 +149,55 @@ class VeoScriptService:
             info += f"\n- Tính năng nổi bật: {features[:200]}"
         return info
 
+    @staticmethod
+    def _salvage_truncated_json(text: str) -> str:
+        """Vá JSON bị cắt giữa chừng bằng cách giữ lại các phân cảnh đã hoàn chỉnh.
+
+        LLM đôi khi chạm trần token và dừng giữa một phân cảnh. Thay vì vứt cả phản hồi
+        (rồi rơi về template chung chung), ta cắt tại phân cảnh hoàn chỉnh cuối cùng
+        rồi đóng lại mảng/đối tượng cho hợp lệ.
+        """
+        if not text:
+            return ""
+        start = text.find('"scenes"')
+        if start < 0:
+            return ""
+        bracket = text.find("[", start)
+        if bracket < 0:
+            return ""
+
+        depth = 0
+        in_str = False
+        escaped = False
+        last_complete = -1
+
+        for i in range(bracket + 1, len(text)):
+            ch = text[i]
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_str = not in_str
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    last_complete = i
+            elif ch == "]" and depth == 0:
+                # Mảng đã đóng đúng cách — không cần vá.
+                return ""
+
+        if last_complete < 0:
+            return ""
+        return text[: last_complete + 1] + "]}"
+
     def _parse_json_response(
         self, raw_text: str, product: Product, num_scenes: int
     ) -> Optional[VeoShowcaseScript]:
@@ -150,7 +215,9 @@ class VeoScriptService:
         clean_sanitized = re.sub(r",\s*([\}\]])", r"\1", clean)
 
         data = None
-        for candidate in [clean_sanitized, clean]:
+        for candidate in [clean_sanitized, clean, self._salvage_truncated_json(clean)]:
+            if not candidate:
+                continue
             try:
                 data = json.loads(candidate)
                 if isinstance(data, dict):

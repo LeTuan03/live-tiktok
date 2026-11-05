@@ -92,6 +92,99 @@ class VeoClient:
         "veo-2.0-generate-preview",
     }
 
+    async def preflight(self) -> tuple[bool, str]:
+        """Kiểm tra trước xem có render được video AI thật không.
+
+        Trả về (chạy_được, lý_do). Khi không chạy được, lý do viết sẵn cho người vận hành
+        đọc hiểu và biết phải làm gì — thay vì để họ nhận một video giả rồi tưởng là thật.
+        """
+        try:
+            self._validate_api_key()
+        except Exception as e:
+            return False, (
+                f"{e}\n\n"
+                "Khắc phục: mở Cài đặt → nhập Gemini API Key, hoặc thêm "
+                "LIVEFLOW_GEMINI_API_KEY vào tệp .env."
+            )
+
+        url = f"{API_BASE}/models?key={self.api_key}"
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, headers=self._headers()) as resp:
+                    if resp.status != 200:
+                        body = (await resp.text())[:200]
+                        return False, (
+                            f"Không truy cập được Google AI (HTTP {resp.status}).\n\n{body}\n\n"
+                            "Khắc phục: kiểm tra mạng và API Key."
+                        )
+                    data = await resp.json()
+        except Exception as e:
+            return False, (
+                f"Không kết nối được tới Google AI: {e}\n\n"
+                "Khắc phục: kiểm tra kết nối Internet rồi thử lại."
+            )
+
+        available = {m.get("name", "").removeprefix("models/") for m in data.get("models", [])}
+        if self.model_name in available:
+            return True, ""
+
+        video_models = sorted(n for n in available if n.startswith(("veo", "gemini-omni")))
+        if video_models:
+            goi_y = "\n".join(f"  • {n}" for n in video_models)
+            return False, (
+                f"Model '{self.model_name}' không có trong tài khoản này.\n\n"
+                f"Các model video key của bạn đang có:\n{goi_y}\n\n"
+                "Khắc phục: đặt LIVEFLOW_VEO_MODEL trong .env thành một trong các model trên."
+            )
+
+        return False, (
+            f"Tài khoản này chưa có model video nào (đang tìm '{self.model_name}').\n\n"
+            + self.FREE_TIER_HELP
+        )
+
+    # Lời giải thích dùng chung cho cả preflight lẫn lỗi lúc render.
+    FREE_TIER_HELP = (
+        "Nguyên nhân thường gặp: API Key vẫn ở Free Tier.\n"
+        "Lưu ý: gói thuê bao Google AI Pro KHÔNG mở quota cho API — đó là hai hệ thống "
+        "tính tiền tách rời.\n\n"
+        "Hai cách khắc phục:\n"
+        "  1. Bật Billing tại https://ai.dev/rate-limit cho project của API Key, HOẶC\n"
+        "  2. Dùng gói Pro tạo video người mẫu thủ công trong app Gemini rồi nạp vào "
+        "LiveFlow — xem docs/HUONG_DAN_GOOGLE_PRO.md."
+    )
+
+    @classmethod
+    def explain_failure(cls, error: BaseException) -> str:
+        """Dịch lỗi kỹ thuật của Google thành hướng dẫn người vận hành đọc được."""
+        msg = str(error)
+
+        if "429" in msg or "too_many_requests" in msg or "Rate limit" in msg:
+            if "limit: 0" in msg:
+                return (
+                    "Tài khoản chưa được cấp quota tạo video (giới hạn 0 lượt/ngày).\n\n"
+                    + cls.FREE_TIER_HELP
+                )
+            return (
+                "Đã chạm giới hạn tốc độ của Google AI. Chờ ít phút rồi thử lại, "
+                "hoặc nâng tier tại https://ai.dev/rate-limit."
+            )
+
+        if "404" in msg or "not found" in msg.lower():
+            return (
+                "Model video đang cấu hình không tồn tại với API Key này.\n\n"
+                + cls.FREE_TIER_HELP
+            )
+
+        if "401" in msg or "403" in msg or "API key" in msg or "PERMISSION" in msg.upper():
+            return (
+                "API Key không hợp lệ hoặc không có quyền.\n\n"
+                "Khắc phục: mở Cài đặt → nhập lại Gemini API Key (lấy tại "
+                "https://aistudio.google.com/app/apikey)."
+            )
+
+        return msg
+
     async def generate_video(
         self,
         prompt: str,

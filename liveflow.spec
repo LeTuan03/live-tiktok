@@ -31,7 +31,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "numpy", "pandas", "scipy", "PyQt5", "PyQt6"],
+    # KHÔNG loại numpy: avatar_animator / auto_showcase_service cần nó, loại ra là bản đóng gói không mở được.
+    excludes=["tkinter", "matplotlib", "pandas", "scipy", "PyQt5", "PyQt6"],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

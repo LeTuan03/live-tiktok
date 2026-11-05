@@ -32,6 +32,8 @@ from app.database.models.avatar import AIAvatar
 from app.database.models.product import Product
 from app.database.session import get_session
 from app.services.auto_showcase_service import AutoShowcaseService
+from app.services.veo_showcase_service import VeoShowcaseService
+from app.integrations.veo.veo_client import VeoClient
 from app.ui.styles.dark_theme import COLORS
 
 
@@ -74,11 +76,24 @@ class AutoShowcaseBatchWorker(QThread):
                 return
 
             service = AutoShowcaseService(session)
+            veo_service = VeoShowcaseService(session)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
+            # Kiểm tra trước: thà dừng ngay với lý do rõ ràng còn hơn render ra
+            # video ảnh tĩnh rồi để người dùng tưởng đó là video AI.
+            self.progress.emit(2, "Đang kiểm tra khả năng tạo video AI...")
+            ok, reason = loop.run_until_complete(veo_service.veo_client.preflight())
+            if not ok:
+                loop.close()
+                self.batch_failed.emit(
+                    "Chưa tạo được video AI người thật.\n\n" + reason
+                )
+                return
+
             total = len(products)
             success_count = 0
+            first_error = ""
 
             for idx, product in enumerate(products):
                 if self._is_cancelled:
@@ -87,7 +102,7 @@ class AutoShowcaseBatchWorker(QThread):
                 base_pct = int((idx / total) * 90)
                 step_pct = int(90 / total)
 
-                def _cb(p: int, msg: str, _idx=idx, _b=base_pct, _s=step_pct, _name=product.name):
+                def _cb(msg: str, p: int, _idx=idx, _b=base_pct, _s=step_pct, _name=product.name):
                     current_pct = _b + int((p / 100.0) * _s)
                     self.progress.emit(
                         min(95, current_pct),
@@ -95,24 +110,45 @@ class AutoShowcaseBatchWorker(QThread):
                     )
 
                 try:
-                    vid_path = loop.run_until_complete(
-                        service.render_product_showcase_video(
+                    project = loop.run_until_complete(
+                        veo_service.create_showcase_project(
                             product=product,
                             avatar=avatar,
+                            voice_id=avatar.voice_id or "vi-VN-HoaiMyNeural",
                             progress_callback=_cb,
                         )
+                    )
+                    loop.run_until_complete(
+                        veo_service.generate_all_scenes(project, progress_callback=_cb)
+                    )
+                    vid_path = loop.run_until_complete(
+                        veo_service.stitch_final_showcase_video(project, progress_callback=_cb)
                     )
                     success_count += 1
                     self.product_done.emit(product.id, vid_path)
                 except Exception as e:
                     logger.exception("Lỗi khi render video sản phẩm {}: {}", product.id, e)
+                    if not first_error:
+                        first_error = VeoClient.explain_failure(e)
+
+            # Không tạo được cái nào -> báo lý do thật, đừng báo "hoàn tất 0/N".
+            if success_count == 0:
+                loop.close()
+                self.batch_failed.emit(
+                    "Không tạo được video nào.\n\n"
+                    + (first_error or "Xem nhật ký để biết chi tiết.")
+                )
+                return
 
             # Sync to LiveStream playlist
             self.progress.emit(95, "Đang đồng bộ danh sách phát Livestream tự động...")
             playlist = service.sync_to_livestream_playlist("Livestream Tự Động AI")
             loop.close()
 
-            self.progress.emit(100, f"Hoàn tất! Đã tạo thành công {success_count}/{total} video.")
+            done_msg = f"Hoàn tất! Đã tạo thành công {success_count}/{total} video."
+            if success_count < total and first_error:
+                done_msg += f" ({total - success_count} sản phẩm lỗi: {first_error.splitlines()[0]})"
+            self.progress.emit(100, done_msg)
             self.batch_finished.emit(success_count, playlist.name)
 
         except Exception as e:
@@ -166,7 +202,7 @@ class AutoShowcaseBatchDialog(QDialog):
         # Step 1: Chọn Người Mẫu AI
         step1_frame = QFrame()
         step1_frame.setStyleSheet(
-            f"background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 10px;"
+            f"background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 10px;"
         )
         step1_layout = QVBoxLayout(step1_frame)
         step1_layout.setContentsMargins(12, 10, 12, 10)
@@ -286,7 +322,10 @@ class AutoShowcaseBatchDialog(QDialog):
         self._avatar_combo.clear()
         for av in self._avatars:
             gender_txt = "Nữ" if av.gender == "female" else "Nam"
-            self._avatar_combo.addItem(f"👤 {av.name} ({gender_txt} • {av.role or 'Đại diện bán hàng'})", av.id)
+            # AIAvatar không có trường 'role' — dùng 'style' (Năng động, Thanh lịch, Chuyên gia...).
+            self._avatar_combo.addItem(
+                f"👤 {av.name} ({gender_txt} • {av.style or 'Đại diện bán hàng'})", av.id
+            )
 
         self._products = self._session.query(Product).filter_by(is_active=True).order_by(Product.id).all()
         self._populate_products_table()

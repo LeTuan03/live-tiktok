@@ -50,6 +50,9 @@ scripts\installer.iss    → mở bằng Inno Setup để tạo bộ cài Setup.
 Xem **[HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md)** (quy trình từng bước, cấu hình OBS dọc 9:16, TikTok/Shopee,
 xử lý sự cố) và **[docs/TICH_HOP_TIKTOK_SHOPEE.md](docs/TICH_HOP_TIKTOK_SHOPEE.md)** (giới hạn tích hợp).
 
+Có gói Google AI Pro? Xem **[docs/HUONG_DAN_GOOGLE_PRO.md](docs/HUONG_DAN_GOOGLE_PRO.md)** — cách tạo người mẫu AI
+người thật bằng Veo trong app Gemini rồi nạp vào LiveFlow, và khi nào cần bật Billing để render tự động.
+
 ## Cấu trúc dự án
 ```
 app/

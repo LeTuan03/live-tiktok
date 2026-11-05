@@ -55,6 +55,83 @@ class AvatarAnimator:
     def __init__(self, ffmpeg_bin: str = "ffmpeg") -> None:
         self.ffmpeg_bin = ffmpeg_bin
 
+    @staticmethod
+    def _foreground_mask(arr: np.ndarray) -> Optional[np.ndarray]:
+        """Tách mặt nạ người mẫu khỏi nền xanh lá / nền trong suốt.
+
+        Trả về None nếu không nhận ra nền (ảnh chụp nền phức tạp) để bên gọi dùng
+        phương án ước lượng theo tỉ lệ.
+        """
+        if arr.ndim != 3 or arr.shape[2] < 3:
+            return None
+
+        if arr.shape[2] == 4:
+            alpha = arr[:, :, 3]
+            # Chỉ tin kênh alpha khi nó thực sự có vùng trong suốt. Ảnh RGB bị convert
+            # sang RGBA sẽ có alpha đục toàn bộ -> coi cả ảnh là người mẫu -> dò sai.
+            if (alpha <= 128).any():
+                mask = alpha > 128
+                if mask.any():
+                    return mask
+
+        r = arr[:, :, 0].astype(np.int16)
+        g = arr[:, :, 1].astype(np.int16)
+        b = arr[:, :, 2].astype(np.int16)
+
+        # Nền xanh lá: kênh G trội hẳn so với R và B
+        green = (g > 90) & (g - r > 40) & (g - b > 40)
+        if green.mean() < 0.12:  # không đủ nền xanh -> không đoán được
+            return None
+
+        mask = ~green
+        return mask if mask.any() else None
+
+    def _detect_head_box(self, arr: np.ndarray) -> Optional[Tuple[int, int, int]]:
+        """Dò (đỉnh đầu, đáy đầu/cổ, tâm x của đầu) từ hình bóng người mẫu.
+
+        Dựa vào biểu đồ bề rộng theo từng hàng: đầu phình ra, tới cổ thì thắt lại,
+        xuống vai thì nở rộng đột ngột. Điểm thắt chính là đáy đầu.
+        """
+        mask = self._foreground_mask(arr)
+        if mask is None:
+            return None
+
+        rows = mask.sum(axis=1)
+        solid = np.flatnonzero(rows > max(2, int(0.01 * mask.shape[1])))
+        if solid.size == 0:
+            return None
+
+        top_y, bottom_y = int(solid[0]), int(solid[-1])
+        subject_h = bottom_y - top_y
+        if subject_h < 40:
+            return None
+
+        # Cổ luôn nằm trong khoảng 10%-45% chiều cao người (kể cả ảnh bán thân lẫn toàn thân)
+        lo = top_y + max(4, int(subject_h * 0.10))
+        hi = top_y + max(lo - top_y + 4, int(subject_h * 0.45))
+        hi = min(hi, bottom_y)
+        if hi - lo < 4:
+            return None
+
+        band = rows[lo:hi]
+        if int(band.max()) - int(band.min()) < 3:
+            # Bề rộng phẳng lì -> không tách được nền, đừng đoán bừa.
+            return None
+        neck_y = lo + int(np.argmin(band))
+
+        head_h = neck_y - top_y
+        if head_h < 12 or head_h > subject_h * 0.6:
+            return None
+
+        # Tâm x lấy theo phần đầu, không lấy cả người (tránh lệch vì tay/vai)
+        head_rows = mask[top_y:neck_y]
+        xs = np.flatnonzero(head_rows.any(axis=0))
+        if xs.size == 0:
+            return None
+        head_cx = int((xs[0] + xs[-1]) // 2)
+
+        return top_y, neck_y, head_cx
+
     def _get_avatar_profile(self, image_path: str | Path, width: int, height: int) -> Dict:
         """Find or estimate facial coordinates for the given avatar image."""
         filename = Path(image_path).stem.lower()
@@ -62,7 +139,37 @@ class AvatarAnimator:
             if key in filename:
                 return data
 
-        # Generic heuristic based on portrait proportions
+        # Tự dò vị trí đầu trên ảnh thật. Công thức cố định theo chiều cao ảnh chỉ đúng
+        # với ảnh chân dung cắt sát; với ảnh toàn thân nó đẩy miệng xuống tận ngực.
+        try:
+            with Image.open(str(image_path)) as im:
+                arr = np.array(im.convert("RGBA"))
+            box = self._detect_head_box(arr)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Không dò được khuôn mặt trên {}: {}", image_path, e)
+            box = None
+
+        if box:
+            top_y, neck_y, head_cx = box
+            head_h = neck_y - top_y
+            # Tỉ lệ nhân trắc: mắt ~0.45, miệng ~0.72 tính từ đỉnh đầu xuống cằm.
+            eye_y = int(top_y + head_h * 0.45)
+            mouth_y = int(top_y + head_h * 0.72)
+            eye_spacing = max(4, int(head_h * 0.20))
+            logger.debug(
+                "Dò khuôn mặt {}: đỉnh đầu y={}, cổ y={}, mắt y={}, miệng y={}",
+                Path(image_path).name, top_y, neck_y, eye_y, mouth_y,
+            )
+            return {
+                "mouth": (head_cx, mouth_y),
+                "mouth_w": max(6, int(head_h * 0.20)),
+                "eyes": [(head_cx - eye_spacing, eye_y), (head_cx + eye_spacing, eye_y)],
+                "eye_size": (max(3, int(head_h * 0.12)), max(2, int(head_h * 0.05))),
+                "max_drop": max(2, int(head_h * 0.09)),
+            }
+
+        # Phương án cuối: ước lượng theo tỉ lệ ảnh chân dung cắt sát.
+        logger.debug("Dùng ước lượng tỉ lệ cho {} (không tách được nền)", Path(image_path).name)
         cx = width // 2
         mouth_y = int(height * 0.30)
         eye_y = int(height * 0.23)

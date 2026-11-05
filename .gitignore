@@ -22,8 +22,11 @@ env/
 *.db-wal
 *.db-shm
 *.sqlite3
-storage/
+# Dùng storage/* (không phải storage/) để còn mở ngoại lệ được cho thư mục con bên dưới.
+storage/*
 app/storage/
+# Người mẫu AI dựng sẵn PHẢI đi kèm bản cài, nếu không app chỉ hiện hình bóng xám.
+!storage/avatars/
 tts_cache/
 app_data/
 
