@@ -496,6 +496,8 @@ class ProductPage(QWidget):
     """Full product management page with table, search, filter, and CRUD."""
 
     stream_now_requested = Signal()
+    # Mở Google Flow Studio cho một sản phẩm (chế độ video_source=flow)
+    flow_pack_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -580,8 +582,11 @@ class ProductPage(QWidget):
         showcase_toolbar_btn.clicked.connect(self._on_showcase_selected)
         toolbar.addWidget(showcase_toolbar_btn)
 
-        veo_toolbar_btn = QPushButton("✨ Video Veo 3 AI")
-        veo_toolbar_btn.setToolTip("Tự động tạo video bán hàng cử chỉ chân thực bằng Google Veo 3")
+        veo_toolbar_btn = QPushButton("✨ Video AI (Google Flow)")
+        veo_toolbar_btn.setToolTip(
+            "Tạo video bán hàng người thật bằng tín dụng Google Flow ngay trong app. "
+            "Đổi sang gọi API Veo bằng LIVEFLOW_VIDEO_SOURCE=api trong .env"
+        )
         veo_toolbar_btn.setStyleSheet(
             "background-color: #0984E3; color: #ffffff; font-weight: bold; padding: 6px 14px; border-radius: 6px;"
         )
@@ -818,6 +823,14 @@ class ProductPage(QWidget):
         product = self._service.get_product(product_id)
         if not product:
             return
+
+        # Chế độ Flow: dùng tín dụng Google Flow trong app, không gọi API (không cần Billing).
+        from app.config.settings import get_settings
+
+        if get_settings().video_source == "flow":
+            self.flow_pack_requested.emit(int(product_id))
+            return
+
         from app.ui.dialogs.veo_showcase_dialog import VeoShowcaseDialog
         dlg = VeoShowcaseDialog(product=product, parent=self)
         dlg.exec()

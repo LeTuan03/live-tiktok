@@ -28,7 +28,8 @@ from app.database.session import get_session
 from app.services.settings_service import KEY_CLOSE_TO_TRAY, SettingsService
 from app.ui.pages.comment_page import CommentPage
 from app.ui.pages.avatar_page import AvatarPage
-from app.ui.pages.dashboard_page import DashboardPage
+from app.ui.pages.dashboard_page import NAV_FLOW, NAV_LIVE, DashboardPage
+from app.ui.pages.flow_page import FlowPage
 from app.ui.pages.live_studio_page import LiveStudioPage
 from app.ui.pages.media_page import MediaPage
 from app.ui.pages.product_page import ProductPage
@@ -44,6 +45,7 @@ NAV_ITEMS = [
     ("🏠", "Bảng điều khiển"),
     ("📦", "Sản phẩm"),
     ("💃", "Người mẫu AI"),
+    ("🎞️", "Google Flow"),
     ("🎬", "Bối cảnh Review"),
     ("🎥", "Thư viện Media"),
     ("📝", "Script Studio"),
@@ -143,6 +145,7 @@ class MainWindow(QMainWindow):
         self._dashboard_page = DashboardPage()
         self._product_page = ProductPage()
         self._avatar_page = AvatarPage()
+        self._flow_page = FlowPage()
         self._scene_set_page = SceneSetPage()
         self._media_page = MediaPage()
         self._script_page = ScriptPage()
@@ -153,7 +156,8 @@ class MainWindow(QMainWindow):
         self._settings_page = SettingsPage()
 
         for page in (
-            self._dashboard_page, self._product_page, self._avatar_page, self._scene_set_page, self._media_page, self._script_page, self._voice_page,
+            self._dashboard_page, self._product_page, self._avatar_page, self._flow_page,
+            self._scene_set_page, self._media_page, self._script_page, self._voice_page,
             self._live_page, self._scheduler_page, self._comment_page, self._settings_page,
         ):
             self._content_stack.addWidget(page)
@@ -161,6 +165,8 @@ class MainWindow(QMainWindow):
         # --- Cross-page wiring ---
         self._dashboard_page.navigate_requested.connect(self.navigate_to)
         self._product_page.stream_now_requested.connect(self._on_product_stream_now)
+        self._product_page.flow_pack_requested.connect(self._on_flow_pack_for_product)
+        self._avatar_page.flow_pack_requested.connect(self._on_flow_pack_for_avatar)
         self._live_page.obs_status_changed.connect(self.update_obs_status)
         self._live_page.live_state_changed.connect(self._dashboard_page.update_live_state)
         self._settings_page.settings_saved.connect(self._on_settings_saved)
@@ -225,8 +231,18 @@ class MainWindow(QMainWindow):
         if 0 <= index < self._content_stack.count():
             self._nav_list.setCurrentRow(index)
 
+    def _on_flow_pack_for_product(self, product_id: int) -> None:
+        """Sản phẩm -> mở Google Flow Studio và dựng gói việc cho đúng sản phẩm đó."""
+        self.navigate_to(NAV_FLOW)
+        self._flow_page.open_product_pack(int(product_id))
+
+    def _on_flow_pack_for_avatar(self) -> None:
+        """Người mẫu -> mở Google Flow Studio và dựng gói clip người mẫu."""
+        self.navigate_to(NAV_FLOW)
+        self._flow_page._on_new_avatar_pack()
+
     def _on_product_stream_now(self) -> None:
-        self.navigate_to(7)
+        self.navigate_to(NAV_LIVE)
         self._live_page.refresh_playlists()
 
     def _on_nav_changed(self, index: int) -> None:

@@ -2,6 +2,14 @@
 
 Tài liệu dành cho người vận hành LiveFlow **đã có gói Google AI Pro / Google One AI Premium**.
 
+> ⚡ **Đọc cái này trước:** LiveFlow giờ có **chế độ Google Flow làm sẵn mọi thứ trong app**
+> (tab 🎞️ Google Flow): tự dán prompt, tự bấm tạo, tự tải và nạp clip, tự đếm tín dụng.
+> Không phải làm tay như Cách A dưới đây nữa.
+> 👉 **[docs/HUONG_DAN_GOOGLE_FLOW.md](HUONG_DAN_GOOGLE_FLOW.md)**
+>
+> Tài liệu này giữ lại để: (1) hiểu vì sao gói Pro ≠ quota API, (2) làm tay khi cần,
+> (3) hướng dẫn bật Billing nếu muốn gọi API Veo tự động hoàn toàn (Cách B).
+
 ---
 
 ## ⚠️ 1. Điều cần hiểu trước: gói Pro ≠ quota API

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -273,6 +273,9 @@ class ApiConfigDialog(QDialog):
 class AvatarPage(QWidget):
     """Page for managing AI Virtual Presenters and avatars."""
 
+    # Mở Google Flow Studio để tạo clip người mẫu bằng tín dụng Flow
+    flow_pack_requested = Signal()
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.session = get_session()
@@ -311,6 +314,14 @@ class AvatarPage(QWidget):
         add_btn.setObjectName("primaryButton")
         add_btn.clicked.connect(self._on_add_avatar)
         toolbar.addWidget(add_btn)
+
+        flow_btn = QPushButton("🎞️ Tạo người mẫu bằng Google Flow")
+        flow_btn.setToolTip(
+            "Dùng tín dụng Google Flow tạo clip nền + 8 clip cử chỉ ngay trong app "
+            "(không cần API key, không cần bật Billing)"
+        )
+        flow_btn.clicked.connect(self.flow_pack_requested.emit)
+        toolbar.addWidget(flow_btn)
 
         api_btn = QPushButton("🔑 Cấu Hình API Lip-Sync")
         api_btn.clicked.connect(self._on_config_api)

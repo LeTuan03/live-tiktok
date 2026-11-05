@@ -1,7 +1,9 @@
 # LiveFlow AI Studio — runtime dependencies (Python 3.12+ on Windows 10/11)
 # Install:  pip install -r requirements.txt   (hoặc chạy INSTALL.bat)
 
-# Desktop UI (QtMultimedia dùng để phát audio TTS)
+# Desktop UI (QtMultimedia phát audio TTS; QtWebEngine để nhúng trang Google Flow trong app)
+# Gói PySide6 đã kéo theo PySide6-Addons (chứa QtWebEngine). Nếu môi trường chỉ có
+# PySide6-Essentials thì cài thêm:  pip install PySide6-Addons
 PySide6>=6.7.0
 
 # Database

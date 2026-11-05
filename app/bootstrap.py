@@ -142,6 +142,9 @@ def run_all_checks() -> list[DependencyCheckResult]:
         check_python_package("obsws_python", "obsws-python"),
         check_python_package("bs4", "beautifulsoup4", required=False),
         check_python_package("keyring", "keyring", required=False),
+        # Trình duyệt nhúng của trang Google Flow. Thiếu nó app vẫn chạy, chỉ là phải
+        # tạo video trong Chrome rồi để LiveFlow tự nhận file tải về.
+        check_python_package("PySide6.QtWebEngineWidgets", "PySide6-Addons (QtWebEngine)", required=False),
         check_ffmpeg(),
         check_ffprobe(),
         check_obs_running(),
@@ -167,6 +170,9 @@ def initialize_app_directories(data_dir: Path) -> None:
         data_dir / "tts_cache",
         data_dir / "exports",
         data_dir / "backups",
+        data_dir / "flow_packs",
+        data_dir / "flow_downloads",
+        data_dir / "veo_scenes",
     ):
         d.mkdir(parents=True, exist_ok=True)
     logger.info("Application directories initialized: {}", data_dir)

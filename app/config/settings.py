@@ -167,6 +167,40 @@ class AppSettings(BaseSettings):
     # True = keep speech generated directly by the video model (lip-synced); False = replace with Edge-TTS
     veo_use_native_audio: bool = True
 
+    # --- Google Flow (flow.google.com) ---
+    # "flow" = dùng tín dụng Flow của gói Google AI qua trình duyệt nhúng trong app (KHÔNG cần API key,
+    #          không cần bật Billing). "api" = gọi thẳng Gemini/Veo API (phải bật Billing).
+    video_source: Literal["flow", "api"] = "flow"
+    flow_model: str = "veo-3.1-fast"  # veo-3.1-fast | veo-3.1-quality | veo-3.1-lite
+    flow_resolution: str = "720p"
+    flow_duration_seconds: int = 8
+    # Số tín dụng Flow đang có. LiveFlow tự trừ dần; bấm "Đồng bộ" trong Flow Studio để chốt lại.
+    flow_credits_total: int = 1050
+    # > 0 = tự nhập giá tín dụng mỗi lần tạo, ghi đè bảng giá dựng sẵn (khi Google đổi giá).
+    flow_credit_cost: int = 0
+    flow_image_credit_cost: int = 0
+    # Trình duyệt nhúng lưu video tải về vào đây; để trống = <data_dir>/flow_downloads
+    flow_downloads_dir: Path | None = None
+    # True = tự dán prompt + tự bấm Tạo + tự tải + tự nạp. False = chỉ dán prompt, người dùng tự bấm.
+    flow_auto_generate: bool = True
+    flow_auto_import: bool = True
+    # Thời gian chờ tối đa cho một clip Flow render xong (giây)
+    flow_wait_timeout_seconds: int = 420
+
+    @property
+    def effective_flow_dir(self) -> Path:
+        """Thư mục chứa các gói việc Flow (prompt + manifest + ảnh tham chiếu)."""
+        d = self.data_dir / "flow_packs"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def effective_flow_downloads_dir(self) -> Path:
+        """Thư mục trình duyệt nhúng ghi file tải về (trước khi chuẩn hoá)."""
+        d = Path(self.flow_downloads_dir) if self.flow_downloads_dir else (self.data_dir / "flow_downloads")
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     @property
     def effective_avatar_dir(self) -> Path:
         d = self.avatar_dir or (self.data_dir / "avatars")

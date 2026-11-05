@@ -22,7 +22,7 @@ from loguru import logger
 from app.ui.styles.dark_theme import COLORS
 
 # Navigation indexes (must match NAV_ITEMS in main_window)
-NAV_DASHBOARD, NAV_PRODUCTS, NAV_AVATAR, NAV_SETS, NAV_MEDIA, NAV_SCRIPT, NAV_VOICE, NAV_LIVE, NAV_SCHEDULER, NAV_COMMENTS, NAV_SETTINGS = range(11)
+NAV_DASHBOARD, NAV_PRODUCTS, NAV_AVATAR, NAV_FLOW, NAV_SETS, NAV_MEDIA, NAV_SCRIPT, NAV_VOICE, NAV_LIVE, NAV_SCHEDULER, NAV_COMMENTS, NAV_SETTINGS = range(12)
 
 
 class StatusCard(QFrame):

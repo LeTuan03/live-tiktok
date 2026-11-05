@@ -13,6 +13,11 @@ hiddenimports = (
     + collect_submodules("sqlalchemy.dialects.sqlite")
     + [
         "PySide6.QtMultimedia",
+        # Trang Google Flow nhúng trình duyệt — thiếu 3 module này là bản đóng gói
+        # mở ra không có khung Flow.
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebChannel",
         "pydantic_settings",
         "aiohttp",
         "bs4",

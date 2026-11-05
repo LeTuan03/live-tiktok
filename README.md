@@ -13,6 +13,8 @@ Sản phẩm → Kịch bản AI → Giọng đọc TTS → Playlist → OBS (RT
 ```
 
 ## Tính năng
+- 🎞️ **Google Flow**: nhúng flow.google.com vào app — tự dán prompt, tự bấm tạo, tự tải clip,
+  tự chuẩn hoá 1080x1920 và nạp vào thư viện; đếm tín dụng Flow đã dùng. Không cần API key, không cần Billing.
 - 📦 **Sản phẩm**: nhập tay, dán link Shopee/TikTok Shop (AI trích xuất), import/export CSV, gắn video/ảnh.
 - 🎥 **Thư viện Media**: import video/ảnh/audio, đọc metadata (ffprobe), kiểm tra file thiếu, gắn với sản phẩm.
 - 📝 **Script Studio**: AI viết kịch bản livestream theo loại/phong cách/thời lượng, chỉ dùng dữ liệu đã xác minh, lưu phiên bản.
@@ -50,8 +52,9 @@ scripts\installer.iss    → mở bằng Inno Setup để tạo bộ cài Setup.
 Xem **[HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md)** (quy trình từng bước, cấu hình OBS dọc 9:16, TikTok/Shopee,
 xử lý sự cố) và **[docs/TICH_HOP_TIKTOK_SHOPEE.md](docs/TICH_HOP_TIKTOK_SHOPEE.md)** (giới hạn tích hợp).
 
-Có gói Google AI Pro? Xem **[docs/HUONG_DAN_GOOGLE_PRO.md](docs/HUONG_DAN_GOOGLE_PRO.md)** — cách tạo người mẫu AI
-người thật bằng Veo trong app Gemini rồi nạp vào LiveFlow, và khi nào cần bật Billing để render tự động.
+Có tín dụng Google Flow (gói Google AI Pro/Ultra)? Xem **[docs/HUONG_DAN_GOOGLE_FLOW.md](docs/HUONG_DAN_GOOGLE_FLOW.md)**
+— chế độ mặc định: làm tất cả trong tab **🎞️ Google Flow** của app, không cần API key, không cần bật Billing.
+Muốn gọi thẳng API Veo (phải bật Billing) thì xem **[docs/HUONG_DAN_GOOGLE_PRO.md](docs/HUONG_DAN_GOOGLE_PRO.md)**.
 
 ## Cấu trúc dự án
 ```
@@ -61,6 +64,7 @@ app/
 ├── core/                        # logging, events, exceptions, secrets (keyring)
 ├── database/                    # SQLAlchemy models, repositories, migrations có version
 ├── integrations/
+│   ├── flow/                    # Google Flow: gói prompt, sổ tín dụng, điều khiển trình duyệt nhúng, nạp clip
 │   ├── obs/client.py            # OBS WebSocket 5 (scene, media/image/text source, RTMP, stream)
 │   ├── llm/                     # Gemini, OpenAI-compatible, factory
 │   ├── tts/                     # Edge TTS

@@ -244,6 +244,62 @@ class VeoShowcaseService:
         logger.info("Hoàn tất Phân cảnh {}: {}", scene_index, final_clip)
         return final_clip
 
+    async def attach_external_clip(
+        self,
+        project: VeoProject,
+        scene_index: int,
+        clip_path: str | Path,
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+    ) -> str:
+        """Nhận một clip render ở ngoài (Google Flow) cho một phân cảnh.
+
+        Làm đúng bước 2 của ``generate_scene_video`` — đồng bộ tiếng + chèn phụ đề —
+        nhưng bỏ hẳn bước gọi API. Dùng cho chế độ ``video_source=flow``: người vận hành
+        bấm tạo trong Flow, LiveFlow lo phần ghép.
+
+        Clip Flow thường đã có giọng do model tự đọc (khớp khẩu hình) nên mặc định giữ
+        tiếng gốc; clip câm thì ghép Edge-TTS đã tạo sẵn vào.
+        """
+        scene = next((s for s in project.script.scenes if s.scene_index == scene_index), None)
+        if not scene:
+            raise ValueError(f"Không tìm thấy phân cảnh {scene_index} trong dự án.")
+
+        raw_clip = str(clip_path)
+        if not Path(raw_clip).exists():
+            raise FileNotFoundError(f"Không thấy clip của phân cảnh {scene_index}: {raw_clip}")
+
+        project.raw_video_clips[scene_index] = raw_clip
+
+        if progress_callback:
+            progress_callback(f"Đang đồng bộ âm thanh & phụ đề cho Phân cảnh {scene_index}...", 60)
+
+        aligned_path = self.settings.effective_veo_dir / f"{project.project_id}_scene_{scene_index}_aligned.mp4"
+        keep_native = bool(self.settings.veo_use_native_audio) and self.stitcher.has_audio_stream(raw_clip)
+
+        if keep_native:
+            final_clip = await self.stitcher.align_scene_video_audio(
+                video_path=raw_clip,
+                audio_path=None,
+                output_path=aligned_path,
+                caption_text=scene.speech_text,
+                use_video_audio=True,
+            )
+        elif scene.audio_path and Path(scene.audio_path).exists():
+            final_clip = await self.stitcher.align_scene_video_audio(
+                video_path=raw_clip,
+                audio_path=scene.audio_path,
+                output_path=aligned_path,
+                caption_text=scene.speech_text,
+            )
+        else:
+            final_clip = raw_clip
+
+        project.aligned_video_clips[scene_index] = final_clip
+        scene.video_path = final_clip
+        scene.status = "COMPLETED"
+        logger.info("Đã nhận clip Flow cho Phân cảnh {}: {}", scene_index, final_clip)
+        return final_clip
+
     async def generate_all_scenes(
         self,
         project: VeoProject,

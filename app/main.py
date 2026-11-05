@@ -12,6 +12,14 @@ from pathlib import Path
 if sys.platform == "win32":
     os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
+# Trình duyệt nhúng của trang Google Flow (QtWebEngine) chạy trên Chromium. Máy không có GPU
+# rời/driver mới thì tăng tốc phần cứng hay làm Chromium chết lặng — mặc định dùng phần mềm.
+# Ghi đè bằng biến môi trường QTWEBENGINE_CHROMIUM_FLAGS nếu máy bạn chạy GPU tốt.
+os.environ.setdefault(
+    "QTWEBENGINE_CHROMIUM_FLAGS",
+    "--disable-gpu --disable-gpu-compositing --autoplay-policy=no-user-gesture-required",
+)
+
 from loguru import logger
 
 
@@ -89,6 +97,9 @@ def main() -> int:
 
     # High-DPI policy must be set before QApplication is created
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+    # QtWebEngine (trang Google Flow) đòi thuộc tính này được đặt TRƯỚC khi tạo QApplication,
+    # nếu không thì import PySide6.QtWebEngineWidgets về sau sẽ lỗi.
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setApplicationName(settings.app_name)
     app.setApplicationVersion(settings.app_version)
