@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Brand tokens (generated from lib/branding/colors.json). */
+@import "../styles/tokens.css";
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  /* Surface colors are driven by CSS vars on the route-level wrappers
+     (`.theme-consumer` / `.theme-partner`). Default to light/ink for the
+     advertiser portal so existing partner pages look unchanged. */
+  background: var(--surface-bg);
+  color: var(--surface-fg);
+}
+
+/* Hide native scrollbars on swipe carousels where the pagination dots
+   are the user-facing progress affordance. Inline `style` cannot reach
+   `::-webkit-scrollbar`, so this lives as a real stylesheet rule. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Global-chat row enter animation. A new comment row in the consumer
+   feed slides up from below + fades in. The topmost row in the
+   visible window is faded by the container's mask gradient (see
+   `.chat-stack-fade`), so the natural unmount feels like a soft
+   evaporation instead of a hard jump. */
+@keyframes chatRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.chat-row-in {
+  animation: chatRowIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.chat-stack-fade {
+  -webkit-mask-image: linear-gradient(to top, black 70%, transparent 100%);
+  mask-image: linear-gradient(to top, black 70%, transparent 100%);
+}
+
+/* Live-room placeholder pulse. Applied to the static host portrait
+   in LiveRoomPlayer while no LiveKit track is bound. The 2.4s breath
+   is slow enough to read as "waiting" without looking like a UI bug,
+   and the brightness oscillation keeps the placeholder visually
+   distinct from a frozen live frame. Honors reduced-motion. */
+@keyframes liveRoomPlaceholderPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+.animate-live-placeholder-pulse {
+  animation: liveRoomPlaceholderPulse 2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-live-placeholder-pulse {
+    animation: none;
+  }
+}
+
+/* ON-AIR pulse. Applied to the small green "live" dot on the /customize
+   monitor (and the AI HOST disclosure badge dot) once video is streaming.
+   A gentle ~1.2s breathe in both opacity and scale reads as a calm "on air"
+   signal without flashing. Honors reduced-motion. */
+@keyframes livePulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.92);
+  }
+}
+.animate-live-pulse {
+  animation: livePulse 1200ms ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-live-pulse {
+    animation: none;
+  }
+}
+
+/* /customize stage swap. The build form (input mode) and the on-air monitor
+   (live mode) are mutually exclusive surfaces; whichever one mounts fades up a
+   few pixels so the hand-off between building a host and putting it on air
+   reads as a soft cut, not a hard jump. Honors reduced-motion. */
+@keyframes stageIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-stage-in {
+  animation: stageIn 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-stage-in {
+    animation: none;
+  }
+}

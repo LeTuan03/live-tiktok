@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PORT=8000
+
+RUN pip install --no-cache-dir uv
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY src ./src
+# The /customize voice picker reads this committed seed at runtime
+# (soshop.services.customize resolves it to <app>/seed/curated_voices.json).
+# It is the only seed file the API touches at runtime; the rest of seed/
+# (catalog + 13MB of persona images) is for offline seeding scripts only.
+COPY seed/curated_voices.json ./seed/curated_voices.json
+
+RUN uv sync --frozen --no-dev
+
+EXPOSE 8000
+
+CMD ["uv", "run", "uvicorn", "soshop_server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

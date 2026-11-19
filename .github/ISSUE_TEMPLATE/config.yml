@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/lemonsliceai/SoShop/discussions
+    about: Ask a question or share what you are building on the demo.
+  - name: About LemonSlice
+    url: https://lemonslice.com
+    about: Learn more about the avatar tech behind the hosts.

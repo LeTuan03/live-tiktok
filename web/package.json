@@ -1,0 +1,51 @@
+{
+  "name": "soshop-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:tokens": "node scripts/build-tokens.mjs",
+    "dev": "NODE_ENV=development next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome lint",
+    "format": "biome format --write",
+    "check": "biome check",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "gen:api:spec": "cd ../server && uv run python scripts/dump_openapi.py",
+    "gen:api:client": "openapi-ts",
+    "gen:api": "npm run gen:api:spec && npm run gen:api:client",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.100.10",
+    "livekit-client": "^2.5.0",
+    "lucide-react": "^0.460.0",
+    "next": "15.5.18",
+    "react": "^19.0.3",
+    "react-dom": "^19.0.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@hey-api/client-fetch": "^0.13.1",
+    "@hey-api/openapi-ts": "^0.97.1",
+    "@playwright/test": "^1.48.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.20",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
+  }
+}

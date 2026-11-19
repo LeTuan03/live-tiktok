@@ -1,0 +1,5 @@
+BEGIN;
+DROP TABLE IF EXISTS live_products;
+DROP TABLE IF EXISTS live_sessions;
+ALTER TABLE personas DROP COLUMN IF EXISTS language;
+COMMIT;

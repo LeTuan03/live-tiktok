@@ -1,0 +1,23 @@
+# LiveKit Cloud Agents deploy config (`lk agent deploy`).
+#
+# Local-only file: copy this to `livekit.toml` and fill in your real
+# values, then run `lk agent deploy` from this directory. `livekit.toml`
+# is gitignored so real infra ids never land in the repo — mirrors the
+# `.env` / `.env.example` convention.
+#
+#     cp livekit.toml.example livekit.toml
+#
+# `lk agent deploy` builds the image from the default `Dockerfile` in the
+# working directory — the LK CLI has no `--dockerfile` flag. So this
+# directory's `Dockerfile` IS the worker entrypoint
+# (`python -m soshop_server.agent.main start`); the FastAPI/uvicorn
+# image lives in `Dockerfile.api` and is referenced explicitly from
+# `fly.toml`.
+#
+# Get `subdomain` from `lk project list` (the part before `.livekit.cloud`)
+# and `id` from `lk agent list` (or `lk agent create` for a new one).
+[project]
+  subdomain = "your-livekit-subdomain"
+
+[agent]
+  id = "CA_xxxxxxxxxxxxxx"

@@ -1,0 +1,14 @@
+node_modules
+.next
+out
+.vercel
+.env
+.env.*
+*.env
+!.env.example
+*.log
+.DS_Store
+next-env.d.ts
+
+# TypeScript incremental build cache.
+tsconfig.tsbuildinfo

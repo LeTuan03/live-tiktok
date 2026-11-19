@@ -1,0 +1,205 @@
+{
+  "advertisers": [
+    {
+      "org_id": "org_demo_shop",
+      "name": "Aurora Goods Co.",
+      "contact_email": "ads@auroragoods.example.com"
+    }
+  ],
+  "products": [
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-001",
+      "title": "Portable Carpet & Upholstery Cleaner",
+      "description": "Portable carpet and upholstery deep cleaner. 48 oz tank, triple-action spray, scrub, and suction.",
+      "deep_link_url": "auroragoods://products/le-001",
+      "landing_url": "https://example.com/products/le-001",
+      "price_cents": 12999,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-002",
+      "title": "Air Multi-Styler & Dryer",
+      "description": "Hair dryer and multi-styler with no-heat-damage auto-wrap curlers. 1.5 lbs, all hair types.",
+      "deep_link_url": "auroragoods://products/le-002",
+      "landing_url": "https://example.com/products/le-002",
+      "price_cents": 22989,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-003",
+      "title": "6-in-1 Beauty Massager Wand",
+      "description": "6-in-1 beauty wand for absorption, radiance, elasticity, and pore care. Companion app guides each session.",
+      "deep_link_url": "auroragoods://products/le-003",
+      "landing_url": "https://example.com/products/le-003",
+      "price_cents": 22000,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-004",
+      "title": "4-in-1 Red Light Therapy Wand",
+      "description": "Red light, galvanic current, warmth, and massage in one wand. 3 minutes per area for fine lines and puffiness.",
+      "deep_link_url": "auroragoods://products/le-004",
+      "landing_url": "https://example.com/products/le-004",
+      "price_cents": 18900,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-005",
+      "title": "Overnight Lip Sleeping Mask",
+      "description": "Overnight lip mask with vitamin C, murumuru and shea butter, and antioxidants. Soft by morning.",
+      "deep_link_url": "auroragoods://products/le-005",
+      "landing_url": "https://example.com/products/le-005",
+      "price_cents": 2400,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-006",
+      "title": "Heartleaf Cleansing Foam",
+      "description": "Foam cleanser with heartleaf and BHA. Lifts sebum, hydrates, and refines pores. 5.07 fl oz.",
+      "deep_link_url": "auroragoods://products/le-006",
+      "landing_url": "https://example.com/products/le-006",
+      "price_cents": 1300,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-007",
+      "title": "Rice Water Brightening Serum",
+      "description": "Rice water with 2% alpha-arbutin and niacinamide. Brightens dark spots and evens tone. 30 ml.",
+      "deep_link_url": "auroragoods://products/le-007",
+      "landing_url": "https://example.com/products/le-007",
+      "price_cents": 1550,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-008",
+      "title": "Self-Cleaning Litter Box",
+      "description": "Self-cleaning, app-controlled litter box. Sifts waste automatically. Up to 4 cats, 1-year warranty.",
+      "deep_link_url": "auroragoods://products/le-008",
+      "landing_url": "https://example.com/products/le-008",
+      "price_cents": 69900,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-009",
+      "title": "Mini Percussion Massage Gun",
+      "description": "Ultra-portable percussive massager. 3 speeds, 180-minute battery, TSA-compliant, 3 attachments.",
+      "deep_link_url": "auroragoods://products/le-009",
+      "landing_url": "https://example.com/products/le-009",
+      "price_cents": 21999,
+      "currency": "usd",
+      "status": "active"
+    },
+    {
+      "advertiser_org_id": "org_demo_shop",
+      "sku": "LE-010",
+      "title": "Silicone Reusable Food Bags (4-Pack)",
+      "description": "Reusable silicone bags: half-gallon, snack, and two sandwich. Microwave, dishwasher, oven, and sous-vide safe.",
+      "deep_link_url": "auroragoods://products/le-010",
+      "landing_url": "https://example.com/products/le-010",
+      "price_cents": 5799,
+      "currency": "usd",
+      "status": "active"
+    }
+  ],
+  "campaigns": [
+    {
+      "slug": "aurora-spring-launch-2026",
+      "advertiser_org_id": "org_demo_shop",
+      "name": "Aurora Spring Launch 2026",
+      "budget_cents": 5000000,
+      "daily_cap_cents": 250000,
+      "start_at": "2026-04-15T00:00:00+00:00",
+      "end_at": "2026-06-15T23:59:59+00:00",
+      "targeting": {
+        "countries": ["US", "CA"],
+        "age_min": 18,
+        "age_max": 35,
+        "interests": ["beauty", "wellness", "fitness", "lifestyle"],
+        "platforms": ["ios", "android"],
+        "language": "en"
+      },
+      "status": "running",
+      "product_skus": [
+        "LE-001",
+        "LE-002",
+        "LE-003",
+        "LE-004",
+        "LE-005",
+        "LE-006",
+        "LE-007",
+        "LE-008",
+        "LE-009",
+        "LE-010"
+      ]
+    }
+  ],
+  "media_by_sku": {
+    "LE-001": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-001/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-001-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-001-c/600/800"}
+    ],
+    "LE-002": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-002/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-002-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-002-c/600/800"}
+    ],
+    "LE-003": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-003/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-003-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-003-c/600/800"}
+    ],
+    "LE-004": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-004/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-004-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-004-c/600/800"}
+    ],
+    "LE-005": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-005/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-005-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-005-c/600/800"}
+    ],
+    "LE-006": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-006/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-006-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-006-c/600/800"}
+    ],
+    "LE-007": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-007/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-007-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-007-c/600/800"}
+    ],
+    "LE-008": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-008/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-008-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-008-c/600/800"}
+    ],
+    "LE-009": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-009/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-009-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-009-c/600/800"}
+    ],
+    "LE-010": [
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-010/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-010-b/600/800"},
+      {"kind": "image", "url": "https://picsum.photos/seed/LE-010-c/600/800"}
+    ]
+  }
+}

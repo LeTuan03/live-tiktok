@@ -1,0 +1,104 @@
+[project]
+name = "soshop-server"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "livekit-api~=1.0",
+    "livekit-agents~=1.4.6",
+    "fastapi[standard]",
+    "pydantic-settings",
+    "python-dotenv",
+    "asyncpg",
+    "httpx>=0.28.1",
+    "aioboto3>=15.5.0",
+    "opentelemetry-api~=1.39",
+    "opentelemetry-sdk~=1.39",
+    # The instrumentation packages live on a parallel pre-release version
+    # scheme (0.NNbX). 0.60b1 is the line that pins opentelemetry-api to
+    # 1.39.1 transitively, which matches the SDK already required by
+    # livekit-agents — bump in lockstep with `opentelemetry-api`.
+    "opentelemetry-instrumentation-fastapi==0.60b1",
+    "opentelemetry-exporter-otlp-proto-http~=1.39",
+]
+
+[project.scripts]
+app = "soshop_server.api.app:app"
+
+[dependency-groups]
+agent = [
+    "livekit-agents[openai,silero,groq,elevenlabs,turn-detector,lemonslice]~=1.4.6",
+    "livekit-plugins-noise-cancellation",
+    "livekit-agents~=1.4.6",
+    "edge-tts>=7.3.1",
+    "openvino>=2026.4.1",
+    "opencv-python-headless>=5.0.0.93",
+    "onnx>=1.23.2",
+]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+default-groups = ["dev"]
+# OpenTelemetry instrumentation packages still ship on their 0.NNbX
+# beta scheme; the API/SDK they pin to (1.39+) is itself stable, so
+# allowing pre-releases here is a pragma to satisfy the resolver, not a
+# signal that we're on unstable APIs.
+prerelease = "allow"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/soshop_server", "src/soshop"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "S",     # flake8-bandit (security)
+    "C901",  # mccabe (cyclomatic complexity)
+    "B",     # flake8-bugbear
+    "UP",    # pyupgrade
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"src/soshop_server/core/config.py" = ["S105"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+# Mypy — silence import-untyped noise for third-party libs that don't
+# ship stubs (asyncpg, aioboto3, botocore). The warnings drowned out
+# real type errors and made CI signal binary (28 errors -> "is anything
+# new?"). Keep the rest of mypy strict by default.
+[tool.mypy]
+python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncpg",
+    "asyncpg.*",
+    "aioboto3",
+    "aioboto3.*",
+    "botocore",
+    "botocore.*",
+    "livekit.plugins",
+    "livekit.plugins.*",
+]
+ignore_missing_imports = true

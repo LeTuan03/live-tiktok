@@ -1,0 +1,74 @@
+{
+  "$schema": "https://design-tokens.org/schema.json",
+  "name": "SoShop Color Tokens",
+  "version": "1.0.0",
+  "color": {
+    "brand": {
+      "coral":   { "value": "#FF4D6D", "type": "color", "description": "SoShop Coral: primary, warm, playful." },
+      "magenta": { "value": "#C13C9F", "type": "color", "description": "Mid-stop in the brand gradient." },
+      "indigo":  { "value": "#5B2FD9", "type": "color", "description": "SoShop Indigo: secondary, social-network depth." },
+      "spark":   { "value": "#FFD23F", "type": "color", "description": "Spark Yellow: CTA + accent only. Use sparingly." }
+    },
+    "gradient": {
+      "primary": {
+        "value": {
+          "type": "linear",
+          "angle": "135deg",
+          "stops": [
+            { "position": 0,    "color": "#FF4D6D" },
+            { "position": 0.5,  "color": "#C13C9F" },
+            { "position": 1,    "color": "#5B2FD9" }
+          ]
+        },
+        "type": "gradient",
+        "description": "Canonical brand gradient. Used on mark, hero, primary buttons."
+      },
+      "warmAccent": {
+        "value": {
+          "type": "linear",
+          "angle": "180deg",
+          "stops": [
+            { "position": 0, "color": "#FFD23F" },
+            { "position": 1, "color": "#FF7A91" }
+          ]
+        },
+        "type": "gradient",
+        "description": "Warm accent: drop cards, highlights."
+      }
+    },
+    "neutral": {
+      "ink":   { "value": "#0E0B1A", "type": "color", "description": "Near-black for primary text + dark surfaces." },
+      "slate": { "value": "#3D3953", "type": "color", "description": "Secondary text on light surfaces." },
+      "muted": { "value": "#7A7591", "type": "color", "description": "Tertiary text, placeholders." },
+      "line":  { "value": "#E8E0FF", "type": "color", "description": "Light dividers + card outlines on light bg." },
+      "mist":  { "value": "#F5F2FF", "type": "color", "description": "Light app background." },
+      "cloud": { "value": "#FFFFFF", "type": "color", "description": "Pure white surfaces." }
+    },
+    "semantic": {
+      "success": { "value": "#1FB87A", "type": "color" },
+      "warning": { "value": "#F59E0B", "type": "color" },
+      "danger":  { "value": "#EF4444", "type": "color" },
+      "info":    { "value": "#3B82F6", "type": "color" }
+    },
+    "surface": {
+      "light": {
+        "bg":          { "value": "#F5F2FF", "type": "color" },
+        "bgElevated":  { "value": "#FFFFFF", "type": "color" },
+        "fg":          { "value": "#0E0B1A", "type": "color" },
+        "fgMuted":     { "value": "#3D3953", "type": "color" },
+        "border":      { "value": "#E8E0FF", "type": "color" }
+      },
+      "dark": {
+        "bg":          { "value": "#0E0B1A", "type": "color" },
+        "bgElevated":  { "value": "#1A0F2E", "type": "color" },
+        "fg":          { "value": "#FFFFFF", "type": "color" },
+        "fgMuted":     { "value": "rgba(255,255,255,0.72)", "type": "color" },
+        "border":      { "value": "rgba(255,255,255,0.12)", "type": "color" }
+      }
+    },
+    "ad": {
+      "badgeBg":  { "value": "#0E0B1A", "type": "color", "description": "FTC AD-disclosure badge background." },
+      "badgeFg":  { "value": "#FFD23F", "type": "color", "description": "FTC AD-disclosure badge label." }
+    }
+  }
+}

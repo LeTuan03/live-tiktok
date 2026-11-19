@@ -1,0 +1,85 @@
+{
+  "_comment": "Curated ElevenLabs host voices shown by the /customize voice picker (replaces the live library search). voice_id/public_owner_id are the public Voice Library source; scripts/preload_curated_voices.py copies each into our account (idempotent) and the agent's ensure_voice_in_account dedups to that owned copy at dispatch. To change the lineup: edit this file, then re-run the preload script.",
+  "voices": [
+    {
+      "display_name": "Hale",
+      "vibe": "Smooth & persuasive",
+      "gender": "male",
+      "accent": "american",
+      "age": "middle_aged",
+      "voice_id": "dXtC3XhB9GtPusIpNtQx",
+      "public_owner_id": "3f02bdfa108b3fc0a8a14e5e88d0808fd571c4bf61d2fcc01ea3c60054b0633a",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/XWwWNeeRhJOfmltwxQgPxrxDmh02/voices/dXtC3XhB9GtPusIpNtQx/1edb5a1f-3169-4351-b850-22f30a915213.mp3"
+    },
+    {
+      "display_name": "Drew",
+      "vibe": "Casual & fun",
+      "gender": "male",
+      "accent": "american",
+      "age": "young",
+      "voice_id": "q0IMILNRPxOgtBTS4taI",
+      "public_owner_id": "675db5c1a341e2f820aefb00825680aa042d958a4a3aef3200735c799210dcb4",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/workspace/b2109416c7514449a5f06540d10f0e73/voices/q0IMILNRPxOgtBTS4taI/jKxasnssCutKQDSwe1bV.mp3"
+    },
+    {
+      "display_name": "Asher",
+      "vibe": "Charismatic, British",
+      "gender": "male",
+      "accent": "british",
+      "age": "young",
+      "voice_id": "UaYTS0wayjmO9KD1LR4R",
+      "public_owner_id": "bb2cf94b50b0c896a7379e353e0cbf14e27975948e820bb6e749f0013e238cc8",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/8lFbpyj9WaVPcRPynJQfb7WMid32/voices/UaYTS0wayjmO9KD1LR4R/EKm8pgubX31EKqlrFvpE.mp3"
+    },
+    {
+      "display_name": "Jerry",
+      "vibe": "High-energy hype",
+      "gender": "male",
+      "accent": "american",
+      "age": "middle_aged",
+      "voice_id": "zDBYcuJrpuZ6YQ7AgRUw",
+      "public_owner_id": "a39978ae1a3df0f45fdab1322b8c5a8723fa4e2909858fd3c6bb5ab836cc50de",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/ckwIURo2ELSVl0fOTOiU9bdtf143/voices/zDBYcuJrpuZ6YQ7AgRUw/FAjoQNl52onrpW1Ab2p5.mp3"
+    },
+    {
+      "display_name": "Zara",
+      "vibe": "Warm & conversational",
+      "gender": "female",
+      "accent": "american",
+      "age": "young",
+      "voice_id": "jqcCZkN6Knx8BJ5TBdYR",
+      "public_owner_id": "14bf0419ccdd0281b4481d9e67e9ad96d1106953d3d66c7ba70a77cfb0245e40",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/XKwEw9ihVRMYSZkGwKydUfpES0B3/voices/jqcCZkN6Knx8BJ5TBdYR/JKHbp9CMKBoqcDFfzWIf.mp3"
+    },
+    {
+      "display_name": "Rachel",
+      "vibe": "Casual narrator",
+      "gender": "female",
+      "accent": "american",
+      "age": "middle_aged",
+      "voice_id": "K7W7zLWeGoxU9YqWoB7A",
+      "public_owner_id": "0074240ba6e7afddd60aa6d9183e8ee7cb14baa618aa476625fbbbe0834c2189",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/ASpWtpoIb8QO6ihmDnPl9KOrd4s1/voices/K7W7zLWeGoxU9YqWoB7A/JyYCTsdVf8ikvvri5CTU.mp3"
+    },
+    {
+      "display_name": "Christina",
+      "vibe": "Energetic commercial",
+      "gender": "female",
+      "accent": "american",
+      "age": "young",
+      "voice_id": "BuaKXS4Sv1Mccaw3flfU",
+      "public_owner_id": "472b6ce1c71b3c5bf78fcadff4210e10addfd9820332cb1fbfa0d1cdeb55db68",
+      "preview_url": "https://api.us.elevenlabs.io/v1/voices/BuaKXS4Sv1Mccaw3flfU/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ1c2VyX2lkIjoibEhFQm9LUERSRGdVVkx3MEpLNTN0dHdJa3lYMiIsImZpbGVuYW1lIjoidHFUMUFMNG1HUDJLOGU5MWwwaTgubXAzIiwidGltZXN0YW1wIjoxNzgwOTUyNDAwMDAwMDAwfQ%3D%3D"
+    },
+    {
+      "display_name": "Brielle",
+      "vibe": "Natural & chill",
+      "gender": "female",
+      "accent": "american",
+      "age": "young",
+      "voice_id": "6u6JbqKdaQy89ENzLSju",
+      "public_owner_id": "fe639c9a5594c8a388f3ddfe83cefb1944619a3e40301a9811219658c6ad399d",
+      "preview_url": "https://storage.googleapis.com/eleven-public-prod/database/user/UtY8SzQcynWj6pnllKYZlJLRAaI3/voices/6u6JbqKdaQy89ENzLSju/3xgkujlukdHHhcsdsQsY.mp3"
+    }
+  ]
+}

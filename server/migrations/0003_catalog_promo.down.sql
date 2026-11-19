@@ -1,0 +1,9 @@
+BEGIN;
+
+ALTER TABLE products
+    DROP COLUMN IF EXISTS usage_notes,
+    DROP COLUMN IF EXISTS highlights,
+    DROP COLUMN IF EXISTS category,
+    DROP COLUMN IF EXISTS brand;
+
+COMMIT;

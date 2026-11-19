@@ -1,42 +1,32 @@
-# Byte-compiled
-__pycache__/
-*.py[cod]
-*$py.class
+# Local agent / orchestration tooling state
+.mstro/
 
-# Virtual environment
-venv/
-.venv/
-env/
+# Claude Code
+.claude/
 
-# IDE
-.vscode/
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Editors / IDEs
 .idea/
+.vscode/
 *.swp
 *.swo
+*~
 
-# Environment
+# Environment files (only .env.example is committed)
 .env
-
-# Database
-*.db
-*.sqlite3
+.env.*
+*.env
+!.env.example
 
 # Logs
 *.log
+logs/
 
-# Distribution
-dist/
-build/
-*.egg-info/
-*.spec
-
-# OS
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# App data (local)
-app_data/
-
-# TTS cache
-tts_cache/
+# Temporary files
+tmp/
+temp/

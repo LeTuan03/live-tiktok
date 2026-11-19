@@ -1,0 +1,6 @@
+BEGIN;
+
+DROP TABLE IF EXISTS broadcast_items;
+DROP TABLE IF EXISTS broadcasts;
+
+COMMIT;

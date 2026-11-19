@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "SoShop Flow Bridge",
+  "version": "0.2.0",
+  "description": "Lets the local SoShop server drive Google Flow in this browser to generate product videos with your own Flow credits.",
+  "minimum_chrome_version": "120",
+  "permissions": ["debugger", "tabs", "storage", "alarms"],
+  "host_permissions": ["https://flow.google.com/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "SoShop Flow Bridge", "default_popup": "popup.html" }
+}

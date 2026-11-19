@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.local
+
+# LiveKit Cloud deploy config — holds the real project subdomain + agent
+# id. Copy from `livekit.toml.example` locally; only the template is
+# committed. Same convention as `.env` / `.env.example`.
+livekit.toml
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+.DS_Store
+
+# OpenAPI spec — regenerated on demand by `cd web && npm run gen:api`.
+# Tracked artifact lives in web/lib/api/generated/.
+openapi.json
+
+# Proprietary seed data — real brand catalog, locked-host personas, and
+# product photo assets stay out of git. Only the `*.example` templates are
+# committed; the seeder/tests fall back to them on a fresh clone. Mirrors
+# the `.env` / `.env.example` convention.
+seed/catalog.json
+seed/personas/*.json
+seed/personas/*/
+
+# Local runtime data: uploads, avatar assets, downloaded model weights.
+data/

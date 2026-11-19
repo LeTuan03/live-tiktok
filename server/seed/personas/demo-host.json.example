@@ -1,0 +1,94 @@
+{
+  "slug": "demo-host",
+  "name": "Leila",
+  "avatar_image_url": "https://vibeverse.t3.tigrisfiles.io/personas/ec414453-5803-539a-ad1d-09aff4d05f7a/avatar.png",
+  "voice_id": "m8AHWg36LJTQWKmfeGVv",
+  "voice_pipeline_id": "elevenlabs-eleven_turbo_v2_5",
+  "persona_kind": "host",
+  "status": "active",
+  "traits": "evergreen",
+  "personality": "Warm, centered, instructor energy. Talks to you like the friend who's already tested everything and knows what'll actually stick. Bold without pushy. Names the receipt, hands you the call.",
+  "backstory": "Spent her twenties teaching yoga in Tel Aviv, then opened a small wellness studio in Brooklyn. Built the brand on word of mouth, clients trusted her because she only recommended what survived her own ten-class week. Same standard, now on camera.",
+  "scripts": [
+    {
+      "kind": "pitch",
+      "product_sku": "LE-001",
+      "script_text": "Forty-eight ounce tank, triple-action formula, spray-scrub-suction. Pet stains, wine, mud, gone in one pass. Lightweight enough to bring up the stairs.",
+      "hook": "I stopped renting a carpet cleaner.",
+      "cta": "Tap to grab one home.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-002",
+      "script_text": "One twist swaps the dryer to a multi-styler, auto-wrap curls, smooth, volumize, dry. One-and-a-half pounds. Regulates temperature a thousand times per second. No heat damage.",
+      "hook": "Salon blowouts in my own bathroom.",
+      "cta": "Tap to get yours today.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-003",
+      "script_text": "Six-in-one wand, absorption, radiance, elasticity, pore care. The app guides every session. No gel, no fuss. Pairs with your existing skincare. Korean beauty engineered to work.",
+      "hook": "The glass-skin device my clients keep texting me about.",
+      "cta": "Tap to make it yours.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-004",
+      "script_text": "Red light, galvanic current, warmth, massage, all in one wand. Smooths fine lines, depuffs eyes, lifts cheeks. Activating serum included. Spa-quality skincare on your nightstand.",
+      "hook": "Three minutes per area. Real results.",
+      "cta": "Tap to bring one home.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-005",
+      "script_text": "Murumuru and shea butter, vitamin C, antioxidants. Glides on like balm, works like a treatment overnight. Full size plus a travel mini. Twenty-four dollars.",
+      "hook": "Apply this before bed. Wake up softer.",
+      "cta": "Tap to add to cart.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-006",
+      "script_text": "Heartleaf-infused foam with BHA, hyaluronic acid, anti-sebum complex. Lifts makeup, dirt, oil without stripping skin. The first step of any double cleanse. Thirteen dollars.",
+      "hook": "The cleanser I rinse with every morning.",
+      "cta": "Tap to swap yours in.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-007",
+      "script_text": "Rice water at sixty-eight percent for hydration, niacinamide for barrier care, alpha-arbutin for dark spots. One ounce. Glow you can see in two weeks.",
+      "hook": "Two percent alpha-arbutin changed my skin.",
+      "cta": "Tap to start the routine.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-008",
+      "script_text": "Self-cleaning, app-controlled, sifts waste automatically. Carbon filters cut odor. Fence and step keep tracking down. Up to four cats, one-year warranty included.",
+      "hook": "Imagine never scooping the litter box again.",
+      "cta": "Tap to bring it home.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-009",
+      "script_text": "Three adjustable speeds, three-hour battery, TSA-compliant. Three attachments, dampener, ball, thumb. Bluetooth syncs with the companion coach app for guided recovery routines.",
+      "hook": "Fits in my purse. Works like the full size.",
+      "cta": "Tap to take one along.",
+      "weight": 1
+    },
+    {
+      "kind": "pitch",
+      "product_sku": "LE-010",
+      "script_text": "Half-gallon, snack, two sandwich, leak-proof platinum silicone, oven safe to four-twenty-five, dishwasher, freezer, sous vide. The kitchen swap that pays itself back in a month.",
+      "hook": "Four bags. Zero single-use plastic.",
+      "cta": "Tap to stock yours up.",
+      "weight": 1
+    }
+  ]
+}
