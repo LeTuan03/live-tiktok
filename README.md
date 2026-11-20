@@ -110,6 +110,20 @@ Most of this repo is ordinary FastAPI and Next.js. Three pieces are not, and the
 
 ## Quick start
 
+### Everything in Docker (easiest)
+
+With only Docker installed, one command builds and runs Postgres, LiveKit, the API, the agent worker and the web app, applies the migrations and seeds the demo host:
+
+```bash
+cp soshop.env.example soshop.env   # add GROQ_API_KEY
+docker compose up -d --build
+# open http://localhost:3000/studio
+```
+
+On Windows, double-click `soshop-start.cmd` instead: it starts Docker Desktop, asks for the Groq key on first run, and opens the studio. `soshop-stop.cmd` stops the stack and keeps the data. The end-user guide (Vietnamese) is [HUONG-DAN.md](HUONG-DAN.md). To ship to users without the source, `tools/build-release.ps1` builds the images (server code as bytecode only), pushes them to GHCR and writes `dist/SoShop-<version>.zip`, a bundle with no `docker-compose.override.yml`, so it pulls instead of building. All services share one network namespace so `localhost` means the same thing to the browser, the worker and LiveKit; see the header of [docker-compose.yml](docker-compose.yml).
+
+### Per subsystem, for development
+
 Each subsystem has its own `.env.example`. Copy it, fill in your keys, and run. You need accounts for the providers in the pipeline above (LiveKit, LemonSlice, ElevenLabs, Groq) plus Postgres and an S3-compatible bucket. For a first local run you can point S3 at MinIO.
 
 ### `server/`: FastAPI + LiveKit agent

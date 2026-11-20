@@ -30,3 +30,6 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Release bundles (tools/build-release.ps1)
+dist/

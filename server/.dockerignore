@@ -16,3 +16,6 @@ tests/
 
 openapi.json
 .DS_Store
+
+# Runtime data (uploads, avatars, model weights): never part of an image.
+data/

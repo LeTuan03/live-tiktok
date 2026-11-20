@@ -1,0 +1,55 @@
+# One image for the whole server side of the local Docker Compose bundle
+# (docker-compose.yml at the repo root): the DB init step, the API and the
+# agent worker all run from it with different commands.
+#
+# Unlike Dockerfile / Dockerfile.api (the split Fly.io images), this one
+# installs the agent group into the API too, because the API spawns the
+# lip-sync asset builder and the review-video renderer, and it ships ffmpeg,
+# migrations, seed data and scripts.
+
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH=/opt/venv/bin:$PATH \
+    DATA_DIR=/app/data
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
+
+WORKDIR /app
+
+# Dependencies first so code edits do not reinstall them.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --group agent --no-install-project
+
+COPY src ./src
+COPY migrations ./migrations
+COPY seed ./seed
+COPY scripts ./scripts
+RUN uv sync --frozen --no-dev --group agent
+
+# Bake the turn-detector and VAD weights into the image so the first live
+# session does not stall on a download.
+RUN python -m soshop_server.agent.main download-files
+
+# Release images (tools/build-release.ps1 sets STRIP_SOURCE=1) ship our own
+# code as bytecode only: each module is compiled next to its source
+# (compileall -b, so imports still find it) and the .py files are removed.
+# Third-party packages are left alone. Tracebacks then show no source lines.
+ARG STRIP_SOURCE=0
+RUN if [ "$STRIP_SOURCE" = "1" ]; then \
+        python -m compileall -q -b -f src scripts \
+        && find src scripts -name "*.py" -delete \
+        && find src scripts -name "__pycache__" -type d -prune -exec rm -rf {} + \
+        && python -c "import soshop_server.api.app, soshop.agent.main"; \
+    fi
+
+EXPOSE 8000
+
+CMD ["uvicorn", "soshop_server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

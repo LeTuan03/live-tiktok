@@ -1,0 +1,16 @@
+# Source-repo only: builds the images that docker-compose.yml names.
+# Compose merges this file automatically, so `docker compose up -d --build`
+# in the repo builds from server/ and web/. The release bundle leaves it out
+# and pulls prebuilt images instead (tools/build-release.ps1).
+
+services:
+  init:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.local
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
