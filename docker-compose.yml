@@ -1,0 +1,126 @@
+# SoShop, the whole stack in one command:
+#
+#   docker compose up -d --build      # or double-click soshop-start.cmd on Windows
+#
+# Then open http://localhost:3000/studio. Settings and API keys live in
+# soshop.env (copy soshop.env.example). See HUONG-DAN.md.
+#
+# Images: this file only names them. In the source repo, Compose also merges
+# docker-compose.override.yml, which builds them from server/ and web/. The
+# release bundle made by tools/build-release.ps1 ships this file without the
+# override, with the image names rewritten to the registry, so it pulls.
+#
+# Networking: every service joins the network namespace of the tiny `net`
+# container, so "localhost" means the same thing to the browser, the API, the
+# worker and the Next.js server. That is what lets LiveKit advertise
+# 127.0.0.1 (--node-ip) and have WebRTC media work for the browser on the host
+# and for the agent worker alike. The published ports all live on `net`.
+#
+# Data: Postgres rows and server files (uploads, videos, avatar assets, model
+# weights downloaded on first use) live in the named volumes below, so they
+# survive `docker compose down` and image rebuilds. `docker compose down -v`
+# deletes them.
+
+name: soshop
+
+x-server: &server
+  image: soshop-server:local
+  env_file:
+    - path: ./soshop.env
+      required: false
+  environment: &server-env
+    ENVIRONMENT: development
+    DATABASE_URL: postgresql://soshop:soshop@localhost:5432/soshop
+    LIVEKIT_URL: ws://localhost:7880
+    LIVEKIT_API_KEY: devkey
+    LIVEKIT_API_SECRET: secret
+    DATA_DIR: /app/data
+    MEDIA_STORAGE: local
+    SITE_PASSWORD: ${SOSHOP_SITE_PASSWORD:-soshop-local}
+    CORS_ALLOW_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+  network_mode: service:net
+  volumes:
+    - server-data:/app/data
+  restart: unless-stopped
+
+services:
+  # Owns the shared network namespace and every published port. It does
+  # nothing else, so restarting any real service never drops the others' network.
+  net:
+    image: registry.k8s.io/pause:3.10
+    ports:
+      - "3000:3000"           # web
+      - "8000:8000"           # API (also the Flow Bridge extension's websocket)
+      - "7880:7880"           # LiveKit signaling
+      - "7881:7881"           # LiveKit WebRTC over TCP
+      - "7882:7882/udp"       # LiveKit WebRTC over UDP
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    network_mode: service:net
+    environment:
+      POSTGRES_USER: soshop
+      POSTGRES_PASSWORD: soshop
+      POSTGRES_DB: soshop
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U soshop -d soshop"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+    network_mode: service:net
+    restart: unless-stopped
+
+  # One-shot: applies pending migrations and seeds the demo host on first run.
+  init:
+    <<: *server
+    command: ["python", "-m", "soshop_server.db.migrate", "--seed-if-empty"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *server
+    command: ["uvicorn", "soshop_server.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      livekit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  worker:
+    <<: *server
+    command: ["python", "-m", "soshop_server.agent.main", "start"]
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      livekit:
+        condition: service_started
+
+  web:
+    image: soshop-web:local
+    network_mode: service:net
+    environment:
+      SITE_PASSWORD: ${SOSHOP_SITE_PASSWORD:-soshop-local}
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  server-data:
