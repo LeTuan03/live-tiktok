@@ -1,4 +1,4 @@
-"""Stitching (ffmpeg, skipped when absent), captions and the on-disk job store."""
+"""Stitching (ffmpeg, skipped when absent), captions and the job model (no database)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from soshop.promo import assemble, jobs
-from soshop.promo.script import PromoHost, PromoProduct
+from soshop.promo import assemble, jobs, runner
+from soshop.promo.script import PromoHost, PromoProduct, PromoScript, Shot
+from soshop_server import storage
+from soshop_server.core.config import settings
 
 PRODUCT = PromoProduct(id="p1", name="Son dưỡng môi Labello Classic", price=59000)
 
@@ -78,25 +80,91 @@ def test_normalise_concat_and_thumbnail(tmp_path: Path) -> None:
     assert (tmp_path / "thumb.jpg").stat().st_size > 0
 
 
-def test_job_store_round_trip(tmp_path: Path) -> None:
-    job, path = jobs.new_job(
-        tmp_path,
+def _job() -> jobs.PromoJob:
+    return jobs.new_job(
         product=PRODUCT,
         host=PromoHost(name="Mai"),
         language="vi",
         shot_count=3,
         flow_model="Veo 3.1 - Lite",
     )
-    assert jobs.job_dir(tmp_path, job.id) == path
+
+
+def test_new_job_is_a_draft_with_a_safe_id() -> None:
+    job = _job()
+    assert job.status == "draft" and not job.busy
+    assert jobs.valid_id(job.id) and len(job.id) == 32
+    assert job.file_keys() == []
+
+
+def test_new_keys_live_under_the_job_and_never_repeat() -> None:
+    job = _job()
+    first = jobs.new_key(job.id, "video", "mp4")
+    second = jobs.new_key(job.id, "video", "mp4")
+    assert first != second
+    assert first.startswith(f"promo/{job.id}/video-") and first.endswith(".mp4")
+    assert jobs.key(job.id, "thumb.jpg") == f"promo/{job.id}/thumb.jpg"
+
+
+def test_drop_clip_forgets_the_take_and_returns_its_key() -> None:
+    job = _job()
+    shot = jobs.ShotState(index=0, has_clip=True, clip_key=jobs.new_key(job.id, "shot-1", "mp4"))
+    job.shots = [shot]
+    job.video_key = jobs.new_key(job.id, "video", "mp4")
+    assert set(job.file_keys()) == {shot.clip_key, job.video_key}
+    key = shot.drop_clip()
+    assert key is not None and key.startswith(f"promo/{job.id}/shot-1-")
+    assert shot.clip_key is None and not shot.has_clip
+
+
+def test_job_state_round_trips_through_json() -> None:
+    job = _job()
     job.status = "rendering"
-    job.shots = [jobs.ShotState(index=0, speech_match=0.9)]
-    jobs.save(path, job)
-    loaded = jobs.load(path)
-    assert loaded is not None and loaded.busy and loaded.shots[0].speech_match == 0.9
-    assert [j.id for j in jobs.list_all(tmp_path)] == [job.id]
-    assert jobs.clip_path(path, 0).name == "shot-1.mp4"
+    job.shots = [jobs.ShotState(index=0, speech_match=0.9, clip_key="promo/x/shot-1-a.mp4")]
+    loaded = jobs.PromoJob.model_validate_json(job.model_dump_json())
+    assert loaded.busy and loaded.shots[0].speech_match == 0.9
+    assert loaded.shots[0].clip_key == "promo/x/shot-1-a.mp4"
 
 
-@pytest.mark.parametrize("bad", ["", "../etc", "a/b", "nope"])
-def test_job_dir_rejects_unknown_or_unsafe_ids(tmp_path: Path, bad: str) -> None:
-    assert jobs.job_dir(tmp_path, bad) is None
+@pytest.mark.parametrize("bad", ["", "../etc", "a/b", "ố" * 3, "x" * 65])
+def test_unsafe_ids_are_rejected(bad: str) -> None:
+    assert not jobs.valid_id(bad)
+    with pytest.raises(ValueError):
+        jobs.work_dir(bad)
+
+
+@needs_ffmpeg
+def test_runner_assembles_from_stored_clips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Clips come from the store (not scratch); the results go back under new keys."""
+    monkeypatch.setattr(settings, "DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(settings, "MEDIA_STORAGE", "local")
+    store = storage.get_store()
+    job = _job()
+    line = "Son này mềm môi lắm nha."
+    shot = Shot(
+        beat="hook",
+        action="Cầm thỏi son lên trước ống kính",
+        camera="cận",
+        emotion="vui",
+        dialogue=line,
+    )
+    job.script = PromoScript(angle="a", product_look="b", setting="c", shots=[shot, shot])
+    for index in range(2):
+        raw = tmp_path / f"raw-{index}.mp4"
+        _test_clip(raw, 1, "720x1280", audio=True)
+        key = jobs.new_key(job.id, f"shot-{index + 1}", "mp4")
+        store.put_file(key, raw, "video/mp4")
+        job.shots.append(jobs.ShotState(index=index, status="done", has_clip=True, clip_key=key))
+
+    work = jobs.work_dir(job.id)
+    made = runner._assemble(work, job, None)
+
+    assert {"video_key", "thumb_key", "captions_key", "duration_s"} <= set(made)
+    for name in ("video_key", "thumb_key", "captions_key"):
+        key = made[name]
+        assert isinstance(key, str) and key.startswith(f"promo/{job.id}/") and store.exists(key)
+    captions = store.get_bytes(str(made["captions_key"]))
+    assert captions is not None and line in captions.decode("utf-8")
+    assert isinstance(made["duration_s"], float) and made["duration_s"] > 2.0

@@ -9,6 +9,7 @@ the playhead to "now" against the list as it was before the write.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -35,7 +36,6 @@ from soshop.broadcast.timeline import (
 from soshop.promo import jobs
 from soshop.services import catalog
 from soshop.services.studio import to_uuid
-from soshop.services.studio_assets import data_dir
 
 ItemRole = Literal["intro", "product", "outro"]
 ItemSource = Literal["promo", "upload"]
@@ -193,9 +193,9 @@ def _parse_playhead(raw: Any) -> Playhead | None:
         return None
 
 
-def _media(row: asyncpg.Record) -> media.Media:
+def _media(row: asyncpg.Record, promos: dict[str, jobs.PromoJob]) -> media.Media:
     if row["source"] == "promo":
-        return media.resolve_promo(row["source_ref"])
+        return media.resolve_promo(promos.get(row["source_ref"]))
     return media.resolve_upload(row["source_ref"], row["source_duration_s"])
 
 
@@ -228,8 +228,12 @@ def _product(
     )
 
 
-def _item(row: asyncpg.Record, products: dict[str, catalog.CatalogProduct]) -> BroadcastItem:
-    found = _media(row)
+def _item(
+    row: asyncpg.Record,
+    products: dict[str, catalog.CatalogProduct],
+    promos: dict[str, jobs.PromoJob],
+) -> BroadcastItem:
+    found = _media(row, promos)
     product = _product(row, found, products)
     duration = row["duration_s"]
     playable = found.playable
@@ -282,9 +286,10 @@ def _assemble(
     row: asyncpg.Record,
     item_rows: list[asyncpg.Record],
     products: dict[str, catalog.CatalogProduct],
+    promos: dict[str, jobs.PromoJob],
     at_ms: int,
 ) -> Broadcast:
-    items = [_item(r, products) for r in item_rows]
+    items = [_item(r, products, promos) for r in item_rows]
     intro = next((i for i in items if i.role == "intro"), None)
     outro = next((i for i in items if i.role == "outro"), None)
     body = [i for i in items if i.role == "product"]
@@ -347,15 +352,25 @@ async def _products_for(
     )
 
 
+async def _promos_for(
+    conn: asyncpg.Connection, item_rows: list[asyncpg.Record]
+) -> dict[str, jobs.PromoJob]:
+    """The promo videos the items play; a missing id means the video was deleted."""
+    return await jobs.load_many(
+        conn, {r["source_ref"] for r in item_rows if r["source"] == "promo"}
+    )
+
+
 async def _load(conn: asyncpg.Connection, rows: list[asyncpg.Record]) -> list[Broadcast]:
     """Full broadcasts for ``rows``, with any that ran off the end marked ended."""
     item_rows = await _item_rows(conn, [r["id"] for r in rows])
     products = await _products_for(conn, item_rows)
+    promos = await _promos_for(conn, item_rows)
     at = now_ms()
     out: list[Broadcast] = []
     for row in rows:
         mine = [r for r in item_rows if r["broadcast_id"] == row["id"]]
-        broadcast = _assemble(row, mine, products, at)
+        broadcast = _assemble(row, mine, products, promos, at)
         if row["status"] in ON_AIR and broadcast.playback.status == "ended":
             await _mark_ended(conn, row["id"], row["playhead"])
         out.append(broadcast)
@@ -460,7 +475,9 @@ async def _lock(conn: asyncpg.Connection, bid: UUID) -> asyncpg.Record:
 
 async def _timeline(conn: asyncpg.Connection, row: asyncpg.Record) -> Timeline:
     """The broadcast's playable timeline as stored right now (no product lookups)."""
-    items = [_item(r, {}) for r in await _item_rows(conn, [row["id"]])]
+    item_rows = await _item_rows(conn, [row["id"]])
+    promos = await _promos_for(conn, item_rows)
+    items = [_item(r, {}, promos) for r in item_rows]
     return build_timeline(
         next((i for i in items if i.role == "intro"), None),
         [i for i in items if i.role == "product"],
@@ -570,15 +587,16 @@ async def _existing_products(conn: asyncpg.Connection, ids: set[str]) -> set[str
     return {str(r["id"]) for r in rows}
 
 
-def _source_facts(spec: ItemSpec) -> tuple[str | None, float | None]:
+async def _source_facts(
+    conn: asyncpg.Connection, spec: ItemSpec
+) -> tuple[str | None, float | None]:
     """``(product_id, upload_duration_s)`` for a new item, after validating its source."""
     if spec.source == "promo":
-        path = jobs.job_dir(data_dir(), spec.source_ref)
-        job = jobs.load(path) if path is not None else None
+        job = await jobs.load(conn, spec.source_ref)
         if job is None:
             raise BroadcastError("Không tìm thấy video.", status_code=404)
         return job.product.id, None
-    info = media.upload_info(spec.source_ref)
+    info = await asyncio.to_thread(media.upload_info, spec.source_ref)
     duration = info.get("duration_s") if info else None
     if not isinstance(duration, int | float) or duration <= 0:
         raise BroadcastError("Không tìm thấy tệp video đã tải lên.", status_code=404)
@@ -589,7 +607,7 @@ async def add_items(
     conn: asyncpg.Connection, broadcast_id: str, specs: list[ItemSpec]
 ) -> Broadcast:
     """Append product videos; an intro or outro replaces the current one."""
-    facts = [_source_facts(spec) for spec in specs]
+    facts = [await _source_facts(conn, spec) for spec in specs]
     known = await _existing_products(conn, {pid for pid, _ in facts if pid})
     async with _editing(conn, broadcast_id) as row:
         bid = row["id"]

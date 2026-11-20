@@ -19,7 +19,7 @@ from soshop.promo import jobs
 from soshop.promo.script import PromoHost, PromoProduct
 from soshop_server.api.errors import install_error_handlers
 from soshop_server.core.config import settings
-from soshop_server.db.pool import close_pool
+from soshop_server.db.pool import close_pool, get_pool
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"),
@@ -42,22 +42,22 @@ async def client(
     await close_pool()
 
 
-def promo_video(root: Path, seconds: float) -> str:
-    job, path = jobs.new_job(
-        root,
+async def promo_video(seconds: float) -> str:
+    job = jobs.new_job(
         product=PromoProduct(id="00000000-0000-0000-0000-000000000000", name="Son thử"),
         host=PromoHost(name="Mai"),
         language="vi",
         shot_count=3,
         flow_model="Veo 3.1 - Lite",
     )
-    (path / jobs.VIDEO_FILE).write_bytes(b"mp4")
+    job.video_key = jobs.new_key(job.id, "video", "mp4")
     job.status, job.duration_s = "ready", seconds
-    jobs.save(path, job)
+    await jobs.insert(await get_pool(), job)
     return job.id
 
 
-async def test_broadcast_routes(client: httpx.AsyncClient, tmp_path: Path) -> None:
+async def test_broadcast_routes(client: httpx.AsyncClient) -> None:
+    video_id = await promo_video(12.0)
     assert (await client.post("/broadcasts", json={"title": ""})).status_code == 422
     created = await client.post("/broadcasts", json={"title": "pytest route phiên"})
     assert created.status_code == 201
@@ -65,7 +65,7 @@ async def test_broadcast_routes(client: httpx.AsyncClient, tmp_path: Path) -> No
     try:
         add = await client.post(
             f"/broadcasts/{bid}/items",
-            json={"items": [{"source": "promo", "source_ref": promo_video(tmp_path, 12.0)}]},
+            json={"items": [{"source": "promo", "source_ref": video_id}]},
         )
         assert add.status_code == 200
         item = add.json()["items"][0]
@@ -98,5 +98,6 @@ async def test_broadcast_routes(client: httpx.AsyncClient, tmp_path: Path) -> No
         await client.post(f"/broadcasts/{bid}/control", json={"action": "stop"})
     finally:
         assert (await client.delete(f"/broadcasts/{bid}")).status_code == 204
+        await jobs.delete(await get_pool(), video_id)
     assert (await client.get(f"/broadcasts/{bid}")).status_code == 404
     assert (await client.get("/broadcasts/not-a-uuid/events")).status_code == 404

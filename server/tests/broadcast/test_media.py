@@ -41,41 +41,42 @@ def test_parse_probe_rejects_audio_only() -> None:
     assert media.parse_probe(banner) is None
 
 
-def _promo_job(root: Path, *, ready: bool) -> jobs.PromoJob:
-    job, path = jobs.new_job(
-        root,
+def _promo_job(*, ready: bool) -> jobs.PromoJob:
+    job = jobs.new_job(
         product=PromoProduct(id="p1", name="Son dưỡng", price=59000),
         host=PromoHost(name="Mai"),
         language="vi",
         shot_count=3,
         flow_model="Veo 3.1 - Lite",
     )
+    job.thumb_key = jobs.new_key(job.id, "thumb", "jpg")
     if ready:
-        (path / jobs.VIDEO_FILE).write_bytes(b"mp4")
-        (path / jobs.THUMB_FILE).write_bytes(b"jpg")
+        job.video_key = jobs.new_key(job.id, "video", "mp4")
         job.status, job.duration_s = "ready", 26.27
     else:
         job.status = "rendering"
-    jobs.save(path, job)
     return job
 
 
 def test_resolve_promo_ready_video(data_dir: Path) -> None:
-    job = _promo_job(data_dir, ready=True)
-    found = media.resolve_promo(job.id)
+    job = _promo_job(ready=True)
+    found = media.resolve_promo(job)
     assert found.playable and found.problem is None
-    assert found.video_url is not None and found.video_url.startswith(
-        f"/promo/videos/{job.id}/file?v="
-    )
-    assert found.thumb_url is not None and found.video_s == pytest.approx(26.27)
+    assert found.video_url == f"/media/{job.video_key}"
+    assert found.thumb_url == f"/media/{job.thumb_key}"
+    assert found.video_s == pytest.approx(26.27)
     assert found.product is not None and found.product.name == "Son dưỡng"
     assert found.host_name == "Mai" and found.captions_url is None
+    job.captions_key = jobs.new_key(job.id, "captions", "vtt")
+    captions = media.resolve_promo(job).captions_url
+    assert captions is not None and captions.startswith(f"/promo/videos/{job.id}/captions?v=")
 
 
 def test_resolve_promo_busy_or_missing(data_dir: Path) -> None:
-    busy = media.resolve_promo(_promo_job(data_dir, ready=False).id)
+    busy = media.resolve_promo(_promo_job(ready=False))
     assert not busy.playable and busy.problem == "Video đang được tạo lại."
-    gone = media.resolve_promo("0" * 32)
+    assert busy.thumb_url is not None
+    gone = media.resolve_promo(None)
     assert not gone.playable and gone.problem == "Video đã bị xóa."
 
 
@@ -115,7 +116,7 @@ def test_save_upload_stores_video_thumb_and_sidecar(data_dir: Path, tmp_path: Pa
     assert saved.thumb_url is not None and saved.name == "Mở đầu.mp4"
     info = media.upload_info(saved.url)
     assert info is not None and info["codec"] == "h264"
-    assert not list((data_dir / "uploads").glob(".incoming-*"))
+    assert not list((data_dir / "work" / "uploads").iterdir())
 
 
 @needs_ffmpeg
@@ -128,4 +129,4 @@ def test_save_upload_rejects_non_video_and_unplayable_codecs(
     _test_video(mpeg4, codec="mpeg4")
     with pytest.raises(media.UploadRejectedError, match="MPEG4"):
         media.save_upload(io.BytesIO(mpeg4.read_bytes()), "old.mp4")
-    assert not list((data_dir / "uploads").glob(".incoming-*"))
+    assert not list((data_dir / "work" / "uploads").iterdir())

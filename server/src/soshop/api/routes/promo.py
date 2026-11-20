@@ -5,16 +5,20 @@ the AI script (a draft, editable, no credits spent) -> ``POST
 /promo/videos/{id}/render`` has Google Flow render every shot in the user's
 own Chrome through the SoShop Flow Bridge extension, then stitches the
 video -> ``GET /promo/videos/{id}/file``.
+
+Jobs live in Postgres (``soshop.promo.jobs``) and their files in the media
+store: the file routes serve local files directly and redirect to the CDN
+when the store is an S3 bucket.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response, WebSocket, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import Field
 
 from soshop.promo import jobs, runner
@@ -31,7 +35,7 @@ from soshop.promo.script import (
     validate_edit,
 )
 from soshop.services import broadcasts, catalog, studio
-from soshop.services.studio_assets import data_dir
+from soshop_server import storage
 from soshop_server.api.deps import DbConn, StrictModel
 from soshop_server.core.config import settings
 
@@ -108,23 +112,23 @@ def _conflict(message: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
 
 
-def _out(job: jobs.PromoJob, path: Path) -> VideoOut:
-    remaining = sum(1 for i in range(job.shot_count) if not jobs.clip_path(path, i).is_file())
+def _out(job: jobs.PromoJob) -> VideoOut:
+    clips = {shot.index for shot in job.shots if shot.clip_key}
+    remaining = sum(1 for i in range(job.shot_count) if i not in clips)
     return VideoOut(
         **job.model_dump(),
         running=runner.is_running(job.id),
-        has_video=job.status == "ready" and (path / jobs.VIDEO_FILE).is_file(),
-        has_thumb=(path / jobs.THUMB_FILE).is_file(),
+        has_video=job.status == "ready" and job.video_key is not None,
+        has_thumb=job.thumb_key is not None,
         credits_estimate=remaining * credit_ceiling(job.flow_model),
     )
 
 
-def _require_job(job_id: str) -> tuple[jobs.PromoJob, Path]:
-    path = jobs.job_dir(data_dir(), job_id)
-    job = jobs.load(path) if path is not None else None
-    if path is None or job is None:
+async def _require_job(conn: DbConn, job_id: str) -> jobs.PromoJob:
+    job = await jobs.load(conn, job_id)
+    if job is None:
         raise _not_found("video")
-    return job, path
+    return job
 
 
 def _require_idle(job: jobs.PromoJob) -> None:
@@ -158,10 +162,17 @@ def _promo_host(model: studio.ModelRow) -> PromoHost:
     )
 
 
-def _file(path: Path, media_type: str, missing: str) -> FileResponse:
-    if not path.is_file():
+def _file(key: str | None, media_type: str, missing: str) -> Response:
+    """The stored file: served from local disk, or a redirect to the bucket's CDN URL."""
+    if not key:
         raise _not_found(missing)
-    return FileResponse(path, media_type=media_type)
+    store = storage.get_store()
+    path = store.local_path(key)
+    if path is not None:
+        return FileResponse(path, media_type=media_type)
+    if store.kind == "local":
+        raise _not_found(missing)
+    return RedirectResponse(store.url(key), status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
 # ------------------------------------------------------------------- catalog
@@ -246,16 +257,10 @@ async def flow_status() -> FlowStatus:
 
 @router.get("/promo/videos", response_model=VideosResponse)
 async def list_videos(
+    conn: DbConn,
     product_id: Annotated[str | None, Query()] = None,
 ) -> VideosResponse:
-    out = []
-    for job in jobs.list_all(data_dir()):
-        if product_id and job.product.id != product_id:
-            continue
-        path = jobs.job_dir(data_dir(), job.id)
-        if path is not None:
-            out.append(_out(job, path))
-    return VideosResponse(videos=out)
+    return VideosResponse(videos=[_out(job) for job in await jobs.list_all(conn, product_id)])
 
 
 @router.post("/promo/videos", response_model=VideoOut, status_code=status.HTTP_201_CREATED)
@@ -284,8 +289,7 @@ async def create_video(body: VideoCreate, conn: DbConn) -> VideoOut:
         script = await generate_script(promo_product, host, body.shots, language)
     except ScriptError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    job, path = jobs.new_job(
-        data_dir(),
+    job = jobs.new_job(
         product=promo_product,
         host=host,
         language=language,
@@ -294,31 +298,30 @@ async def create_video(body: VideoCreate, conn: DbConn) -> VideoOut:
     )
     job.script = script
     job.shots = [jobs.ShotState(index=i) for i in range(len(script.shots))]
-    jobs.save(path, job)
-    return _out(job, path)
+    await jobs.insert(conn, job)
+    return _out(job)
 
 
 @router.get("/promo/videos/{video_id}", response_model=VideoOut)
-async def get_video(video_id: str) -> VideoOut:
-    job, path = _require_job(video_id)
-    return _out(job, path)
+async def get_video(video_id: str, conn: DbConn) -> VideoOut:
+    return _out(await _require_job(conn, video_id))
 
 
 @router.post("/promo/videos/{video_id}/script", response_model=VideoOut)
-async def regenerate_script(video_id: str) -> VideoOut:
-    job, path = _require_job(video_id)
+async def regenerate_script(video_id: str, conn: DbConn) -> VideoOut:
+    job = await _require_job(conn, video_id)
     _require_idle(job)
     try:
         script = await generate_script(job.product, job.host, job.shot_count, job.language)
     except ScriptError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    _replace_script(job, path, script)
-    return _out(job, path)
+    await _replace_script(conn, job, script)
+    return _out(job)
 
 
 @router.put("/promo/videos/{video_id}/script", response_model=VideoOut)
-async def update_script(video_id: str, body: ScriptUpdate) -> VideoOut:
-    job, path = _require_job(video_id)
+async def update_script(video_id: str, body: ScriptUpdate, conn: DbConn) -> VideoOut:
+    job = await _require_job(conn, video_id)
     _require_idle(job)
     if len(body.script.shots) != job.shot_count:
         raise HTTPException(
@@ -331,15 +334,16 @@ async def update_script(video_id: str, body: ScriptUpdate) -> VideoOut:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
-    _replace_script(job, path, script)
-    return _out(job, path)
+    await _replace_script(conn, job, script)
+    return _out(job)
 
 
-def _replace_script(job: jobs.PromoJob, path: Path, script: PromoScript) -> None:
+async def _replace_script(conn: DbConn, job: jobs.PromoJob, script: PromoScript) -> None:
     """Swap the script; clips of shots whose staging changed must be re-rendered."""
     old = job.script
     previous = {s.index: s for s in job.shots}
     states: list[jobs.ShotState] = []
+    dropped: list[str | None] = []
     for index, shot in enumerate(script.shots):
         unchanged = (
             old is not None
@@ -348,27 +352,31 @@ def _replace_script(job: jobs.PromoJob, path: Path, script: PromoScript) -> None
             and old.setting == script.setting
             and old.product_look == script.product_look
         )
-        clip = jobs.clip_path(path, index)
-        if unchanged and clip.is_file() and index in previous:
-            states.append(previous[index])
+        kept = previous.get(index)
+        if unchanged and kept is not None and kept.clip_key:
+            states.append(kept)
             continue
-        clip.unlink(missing_ok=True)
+        if kept is not None:
+            dropped.append(kept.drop_clip())
         states.append(jobs.ShotState(index=index))
+    dropped += [s.clip_key for i, s in previous.items() if i >= len(script.shots)]
+    dropped.append(job.video_key)
     job.script = script
     job.shots = states
     job.status = "draft"
     job.error = None
-    (path / jobs.VIDEO_FILE).unlink(missing_ok=True)
-    jobs.save(path, job)
+    job.video_key = None
+    await jobs.save(conn, job)
+    await asyncio.to_thread(jobs.delete_keys, dropped)
 
 
 @router.post("/promo/videos/{video_id}/render", response_model=VideoOut)
-async def render_video(video_id: str) -> VideoOut:
+async def render_video(video_id: str, conn: DbConn) -> VideoOut:
     """Send the missing shots to Google Flow, then stitch the video."""
-    job, path = _require_job(video_id)
+    job = await _require_job(conn, video_id)
     _require_idle(job)
     try:
-        runner.start(job.id)
+        await runner.start(conn, job.id)
     except runner.RunnerBusyError as exc:
         raise _conflict(str(exc)) from exc
     except BridgeError as exc:
@@ -377,34 +385,35 @@ async def render_video(video_id: str) -> VideoOut:
         ) from exc
     except ValueError as exc:
         raise _conflict(str(exc)) from exc
-    job, path = _require_job(video_id)
-    return _out(job, path)
+    return _out(await _require_job(conn, video_id))
 
 
 @router.post("/promo/videos/{video_id}/shots/{index}/regenerate", response_model=VideoOut)
-async def regenerate_shot(video_id: str, index: int) -> VideoOut:
+async def regenerate_shot(video_id: str, index: int, conn: DbConn) -> VideoOut:
     """Drop one shot's clip and render it again (Veo gives a new take)."""
-    job, path = _require_job(video_id)
+    job = await _require_job(conn, video_id)
     _require_idle(job)
     if not 0 <= index < job.shot_count:
         raise _not_found("cảnh")
-    jobs.clip_path(path, index).unlink(missing_ok=True)
-    return await render_video(video_id)
+    shot = next((s for s in job.shots if s.index == index), None)
+    dropped = shot.drop_clip() if shot is not None else None
+    await jobs.save(conn, job)
+    await asyncio.to_thread(jobs.delete_keys, [dropped])
+    return await render_video(video_id, conn)
 
 
 @router.post("/promo/videos/{video_id}/cancel", response_model=VideoOut)
-async def cancel_video(video_id: str) -> VideoOut:
-    job, path = _require_job(video_id)
+async def cancel_video(video_id: str, conn: DbConn) -> VideoOut:
+    job = await _require_job(conn, video_id)
     if not await runner.cancel(job.id) and job.busy:
         job.status, job.error, job.stage = "failed", "Đã hủy.", ""
-        jobs.save(path, job)
-    job, path = _require_job(video_id)
-    return _out(job, path)
+        await jobs.save(conn, job)
+    return _out(await _require_job(conn, video_id))
 
 
 @router.delete("/promo/videos/{video_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_video(video_id: str, conn: DbConn) -> Response:
-    job, path = _require_job(video_id)
+    job = await _require_job(conn, video_id)
     _require_idle(job)
     used_by = await broadcasts.promo_video_usage(conn, job.id)
     if used_by:
@@ -413,36 +422,47 @@ async def delete_video(video_id: str, conn: DbConn) -> Response:
             + ", ".join(used_by)
             + ". Hãy gỡ video khỏi phiên trước khi xóa."
         )
-    jobs.remove(path)
+    await jobs.delete(conn, job.id)
+    try:
+        await asyncio.to_thread(jobs.remove_files, job.id)
+    except Exception:
+        logger.warning("could not delete the files of promo video %s", job.id, exc_info=True)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/promo/videos/{video_id}/file", response_class=FileResponse)
-async def video_file(video_id: str) -> FileResponse:
-    _, path = _require_job(video_id)
-    return _file(path / jobs.VIDEO_FILE, "video/mp4", "video")
+async def video_file(video_id: str, conn: DbConn) -> Response:
+    job = await _require_job(conn, video_id)
+    return _file(job.video_key, "video/mp4", "video")
 
 
 @router.get("/promo/videos/{video_id}/thumb", response_class=FileResponse)
-async def video_thumb(video_id: str) -> FileResponse:
-    _, path = _require_job(video_id)
-    return _file(path / jobs.THUMB_FILE, "image/jpeg", "ảnh xem trước")
+async def video_thumb(video_id: str, conn: DbConn) -> Response:
+    job = await _require_job(conn, video_id)
+    return _file(job.thumb_key, "image/jpeg", "ảnh xem trước")
 
 
 @router.get("/promo/videos/{video_id}/captions", response_class=FileResponse)
-async def video_captions(video_id: str) -> FileResponse:
-    _, path = _require_job(video_id)
-    return _file(path / jobs.CAPTIONS_FILE, "text/vtt", "phụ đề")
+async def video_captions(video_id: str, conn: DbConn) -> Response:
+    """Served by the API itself on any storage: a ``<track>`` must be same-origin or CORS."""
+    job = await _require_job(conn, video_id)
+    if not job.captions_key:
+        raise _not_found("phụ đề")
+    data = await asyncio.to_thread(storage.get_store().get_bytes, job.captions_key)
+    if data is None:
+        raise _not_found("phụ đề")
+    return Response(content=data, media_type="text/vtt")
 
 
 @router.get("/promo/videos/{video_id}/shots/{index}/clip", response_class=FileResponse)
-async def shot_clip(video_id: str, index: int) -> FileResponse:
-    _, path = _require_job(video_id)
-    return _file(jobs.clip_path(path, index), "video/mp4", "clip")
+async def shot_clip(video_id: str, index: int, conn: DbConn) -> Response:
+    job = await _require_job(conn, video_id)
+    shot = next((s for s in job.shots if s.index == index), None)
+    return _file(shot.clip_key if shot else None, "video/mp4", "clip")
 
 
 @router.get("/promo/videos/{video_id}/debug", response_class=FileResponse)
-async def debug_screenshot(video_id: str) -> FileResponse:
+async def debug_screenshot(video_id: str, conn: DbConn) -> Response:
     """The Flow tab as it looked when the last step failed."""
-    _, path = _require_job(video_id)
-    return _file(path / "flow-error.png", "image/png", "ảnh chụp lỗi")
+    job = await _require_job(conn, video_id)
+    return _file(job.debug_key, "image/png", "ảnh chụp lỗi")

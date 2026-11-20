@@ -397,6 +397,8 @@ export const cancelVideoPromoVideosVideoIdCancelPost = <ThrowOnError extends boo
 
 /**
  * Video Captions
+ *
+ * Served by the API itself on any storage: a ``<track>`` must be same-origin or CORS.
  */
 export const videoCaptionsPromoVideosVideoIdCaptionsGet = <ThrowOnError extends boolean = false>(options: Options<VideoCaptionsPromoVideosVideoIdCaptionsGetData, ThrowOnError>) => (options.client ?? client).get<VideoCaptionsPromoVideosVideoIdCaptionsGetResponses, VideoCaptionsPromoVideosVideoIdCaptionsGetErrors, ThrowOnError>({ url: '/promo/videos/{video_id}/captions', ...options });
 

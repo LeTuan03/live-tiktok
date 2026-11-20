@@ -4,7 +4,6 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from soshop.api.routes import (
     agents,
@@ -21,10 +20,10 @@ from soshop.api.routes import (
     studio,
 )
 from soshop.observability import metrics as metrics_obs
-from soshop.services import studio_assets
 from soshop_server.api.errors import install_error_handlers
 from soshop_server.api.middleware import RequestIDLogFilter, RequestIDMiddleware
 from soshop_server.api.routes import assets, health
+from soshop_server.api.routes.media import install_media
 from soshop_server.core.config import settings
 from soshop_server.main import lifespan
 
@@ -77,12 +76,8 @@ def create_app() -> FastAPI:
     app.include_router(studio.router)
     app.include_router(promo.router)
     app.include_router(broadcasts.router)
-    # Studio uploads (model portraits, product images) are plain local files.
-    app.mount(
-        "/media/uploads",
-        StaticFiles(directory=studio_assets.uploads_dir()),
-        name="studio-uploads",
-    )
+    # Studio uploads and promo video files: local disk or a CDN-fronted bucket.
+    install_media(app)
     app.include_router(metrics_obs.metrics_router)
 
     if settings.OTEL_ENABLED:

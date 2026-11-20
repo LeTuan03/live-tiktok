@@ -369,7 +369,7 @@ async def create_model(
     voice: Annotated[str, Form()] = "",
 ) -> ModelOut:
     try:
-        image_url = studio_assets.save_image_upload(await image.read())
+        image_url = await asyncio.to_thread(studio_assets.save_image_upload, await image.read())
     except studio_assets.UploadRejectedError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
@@ -422,7 +422,7 @@ async def delete_model(model_id: str, conn: DbConn) -> Response:
         raise _conflict("Người mẫu đang được dùng ở nơi khác nên không thể xóa.") from exc
     if not deleted or model is None:
         raise _not_found("người mẫu")
-    studio_assets.remove_model_files(model.id, model.image_url)
+    await asyncio.to_thread(studio_assets.remove_model_files, model.id, model.image_url)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -446,7 +446,8 @@ async def build_model_avatar(model_id: str, conn: DbConn) -> ModelOut:
 @router.post("/uploads", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_image(file: Annotated[UploadFile, File()]) -> UploadResponse:
     try:
-        return UploadResponse(url=studio_assets.save_image_upload(await file.read()))
+        data = await file.read()
+        return UploadResponse(url=await asyncio.to_thread(studio_assets.save_image_upload, data))
     except studio_assets.UploadRejectedError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)

@@ -2,10 +2,11 @@
 
 :func:`resolve_promo` and :func:`resolve_upload` turn an item's source into
 what the player needs (a URL, the video's own length, a thumbnail) or the
-reason it cannot play right now. :func:`save_upload` stores an uploaded video
-in the studio uploads directory, so the existing ``/media/uploads`` mount
-serves it with HTTP range requests (the browser needs them to seek), next to
-a thumbnail and a small JSON sidecar with what ffmpeg measured.
+reason it cannot play right now. :func:`save_upload` checks an uploaded video
+with ffmpeg in scratch space, then puts it in the media store under
+``uploads/`` next to a thumbnail and a small JSON sidecar with what ffmpeg
+measured. Both local ``/media`` and an S3 bucket answer HTTP range requests,
+which the browser needs to seek.
 """
 
 from __future__ import annotations
@@ -22,12 +23,8 @@ from uuid import uuid4
 from soshop.promo import jobs
 from soshop.promo.assemble import AssembleError, ffmpeg
 from soshop.promo.script import PromoProduct
-from soshop.services.studio_assets import (
-    MEDIA_UPLOADS_PREFIX,
-    data_dir,
-    resolve_media_path,
-    uploads_dir,
-)
+from soshop.services.studio_assets import UPLOADS_PREFIX, upload_key
+from soshop_server import storage
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 _CHUNK = 1024 * 1024
@@ -84,16 +81,15 @@ class SavedVideo:
 # ----------------------------------------------------------------- resolving
 
 
-def resolve_promo(job_id: str) -> Media:
-    path = jobs.job_dir(data_dir(), job_id)
-    job = jobs.load(path) if path is not None else None
-    if path is None or job is None:
+def resolve_promo(job: jobs.PromoJob | None) -> Media:
+    """``job`` is the promo video an item points at, ``None`` once it was deleted."""
+    if job is None:
         return Media(problem="Video đã bị xóa.")
-    base = f"/promo/videos/{job.id}"
-    # The version stamp makes the browser fetch a re-rendered video afresh.
-    stamp = f"v={int(job.updated_at.timestamp())}"
-    thumb = f"{base}/thumb?{stamp}" if (path / jobs.THUMB_FILE).is_file() else None
-    if job.status != "ready" or not (path / jobs.VIDEO_FILE).is_file():
+    store = storage.get_store()
+    # Video and thumbnail come straight from the store (the CDN on S3); a
+    # re-render writes new keys, so no cache busting is needed for them.
+    thumb = store.url(job.thumb_key) if job.thumb_key else None
+    if job.status != "ready" or not job.video_key:
         problem = "Video đang được tạo lại." if job.busy else "Video chưa tạo xong."
         return Media(thumb_url=thumb, problem=problem, product=job.product, host_name=job.host.name)
     if not job.duration_s:
@@ -103,9 +99,12 @@ def resolve_promo(job_id: str) -> Media:
             product=job.product,
             host_name=job.host.name,
         )
-    captions = f"{base}/captions?{stamp}" if (path / jobs.CAPTIONS_FILE).is_file() else None
+    # Captions go through the API (a <track> must be same-origin or CORS); the
+    # stamp makes the browser fetch them afresh after a re-render.
+    stamp = f"v={int(job.updated_at.timestamp())}"
+    captions = f"/promo/videos/{job.id}/captions?{stamp}" if job.captions_key else None
     return Media(
-        video_url=f"{base}/file?{stamp}",
+        video_url=store.url(job.video_key),
         thumb_url=thumb,
         captions_url=captions,
         video_s=job.duration_s,
@@ -114,25 +113,39 @@ def resolve_promo(job_id: str) -> Media:
     )
 
 
+def _sibling(key: str, ext: str) -> str:
+    return f"{key.rsplit('.', 1)[0]}.{ext}"
+
+
+def _present(store: storage.MediaStore, key: str) -> bool:
+    # Asking a bucket would block every playlist read on a network round trip.
+    # Uploaded videos are never deleted, so on S3 a stored key is trusted.
+    return store.exists(key) if store.kind == "local" else True
+
+
 def resolve_upload(url: str, duration_s: float | None) -> Media:
-    path = resolve_media_path(url)
-    if path is None:
+    key = upload_key(url)
+    store = storage.get_store()
+    if key is None or not _present(store, key):
         return Media(problem="Tệp video đã bị xóa.")
-    thumb = path.with_suffix(".jpg")
-    thumb_url = f"{MEDIA_UPLOADS_PREFIX}{thumb.name}" if thumb.is_file() else None
+    thumb_key = _sibling(key, "jpg")
+    thumb_url = store.url(thumb_key) if _present(store, thumb_key) else None
     if not duration_s:
         return Media(thumb_url=thumb_url, problem="Không đọc được thời lượng video.")
-    return Media(video_url=url, thumb_url=thumb_url, video_s=duration_s)
+    return Media(video_url=store.url(key), thumb_url=thumb_url, video_s=duration_s)
 
 
 def upload_info(url: str) -> dict[str, object] | None:
     """The sidecar written by :func:`save_upload`, if ``url`` is such an upload."""
-    path = resolve_media_path(url)
-    if path is None:
+    key = upload_key(url)
+    if key is None:
+        return None
+    raw = storage.get_store().get_bytes(_sibling(key, "json"))
+    if raw is None:
         return None
     try:
-        data = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
         return None
     return data if isinstance(data, dict) else None
 
@@ -193,15 +206,15 @@ def _check(info: VideoInfo | None) -> VideoInfo:
     return info
 
 
-def _store(incoming: Path, info: VideoInfo, stem: str) -> Path:
-    """Move the upload into place. MP4 gets its index up front for a quick start."""
+def _prepare(incoming: Path, info: VideoInfo, out_dir: Path, stem: str) -> Path:
+    """The file to store. MP4 gets its index up front for a quick start."""
     if info.codec in _WEBM_CODECS:
         if "webm" not in info.container:
             raise UploadRejectedError("Video VP8/VP9 cần ở dạng WebM. Hãy xuất lại thành MP4.")
-        dst = uploads_dir() / f"{stem}.webm"
+        dst = out_dir / f"{stem}.webm"
         shutil.move(incoming, dst)
         return dst
-    dst = uploads_dir() / f"{stem}.mp4"
+    dst = out_dir / f"{stem}.mp4"
     args = ["-y", "-i", str(incoming), "-map", "0:v:0", "-map", "0:a:0?", "-c:v", "copy"]
     args += ["-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)]
     proc = _ffmpeg(args)
@@ -214,15 +227,20 @@ def _store(incoming: Path, info: VideoInfo, stem: str) -> Path:
 def save_upload(src: BinaryIO, filename: str) -> SavedVideo:
     """Validate and store an uploaded video. Blocking: run it in a thread."""
     ffmpeg()  # fail with AssembleError before reading hundreds of MB
-    incoming = uploads_dir() / f".incoming-{uuid4().hex}"
+    work = storage.work_dir("uploads", uuid4().hex)
     try:
-        if _copy_limited(src, incoming) == 0:
-            raise UploadRejectedError("Tệp video trống.")
-        info = _check(parse_probe(_ffmpeg(["-i", str(incoming)]).stderr))
-        stem = uuid4().hex
-        video = _store(incoming, info, stem)
+        return _save_upload(src, filename, work)
     finally:
-        incoming.unlink(missing_ok=True)
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _save_upload(src: BinaryIO, filename: str, work: Path) -> SavedVideo:
+    incoming = work / "incoming"
+    if _copy_limited(src, incoming) == 0:
+        raise UploadRejectedError("Tệp video trống.")
+    info = _check(parse_probe(_ffmpeg(["-i", str(incoming)]).stderr))
+    stem = uuid4().hex
+    video = _prepare(incoming, info, work, stem)
     thumb = video.with_suffix(".jpg")
     shot = _ffmpeg(
         ["-y", "-ss", f"{min(1.0, info.duration_s / 2):.2f}", "-i", str(video)]
@@ -237,10 +255,15 @@ def save_upload(src: BinaryIO, filename: str) -> SavedVideo:
         "codec": info.codec,
         "name": name,
     }
-    video.with_suffix(".json").write_text(json.dumps(sidecar), encoding="utf-8")
+    store = storage.get_store()
+    key = f"{UPLOADS_PREFIX}{video.name}"
+    store.put_file(key, video, storage.content_type_for(video.name))
+    if has_thumb:
+        store.put_file(_sibling(key, "jpg"), thumb, "image/jpeg")
+    store.put_bytes(_sibling(key, "json"), json.dumps(sidecar).encode("utf-8"), "application/json")
     return SavedVideo(
-        url=f"{MEDIA_UPLOADS_PREFIX}{video.name}",
-        thumb_url=f"{MEDIA_UPLOADS_PREFIX}{thumb.name}" if has_thumb else None,
+        url=store.url(key),
+        thumb_url=store.url(_sibling(key, "jpg")) if has_thumb else None,
         duration_s=round(info.duration_s, 3),
         width=info.width,
         height=info.height,

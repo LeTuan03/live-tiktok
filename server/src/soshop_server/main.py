@@ -58,7 +58,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     from soshop.promo.runner import recover_orphans
 
     try:
-        recover_orphans()
+        await recover_orphans()
     except Exception:
         logger.exception("promo job recovery failed; continuing")
     try:

@@ -1,14 +1,16 @@
-"""Local file storage for the live studio: uploads and motion-avatar assets.
+"""Studio media: uploaded images, plus the local motion-avatar workspace.
 
-Everything lives under ``settings.DATA_DIR`` (git-ignored):
+Uploaded images go to the media store (:mod:`soshop_server.storage`) under
+``uploads/<uuid>.<ext>`` and are referenced by the URL the store hands out:
+``/media/uploads/<name>`` on local storage (the browser prefixes the API base
+URL), the public bucket URL on S3. The agent worker and the renderers turn
+such a URL back into a local file with :func:`resolve_media_path`, which
+downloads it when the store is remote.
 
-* ``uploads/``            images uploaded from the studio, served at ``/media/uploads``
+Still on the local disk under ``settings.DATA_DIR`` (git-ignored):
+
 * ``avatars/<model_id>/`` motion-avatar assets built by ``soshop.agent.lipsync.build``
 * ``models/``             model weights the avatar builder downloads on first use
-
-Uploaded images are referenced by a relative URL (``/media/uploads/<name>``)
-so the same value works from the browser (prefixed with the API base URL) and
-from the agent worker (resolved back to a file with :func:`resolve_media_path`).
 """
 
 from __future__ import annotations
@@ -28,11 +30,15 @@ from uuid import uuid4
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
+from soshop_server import storage
 from soshop_server.core.config import settings
 
 logger = logging.getLogger("soshop.services.studio_assets")
 
 MEDIA_UPLOADS_PREFIX = "/media/uploads/"
+"""URL prefix of an upload on local storage."""
+UPLOADS_PREFIX = "uploads/"
+"""Store key prefix of every upload."""
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 _EXT_BY_FORMAT = {"JPEG": "jpg", "PNG": "png", "WEBP": "webp"}
 # A build that has not touched status.json for this long is considered dead
@@ -61,12 +67,6 @@ def data_dir() -> Path:
     return Path(settings.DATA_DIR).resolve()
 
 
-def uploads_dir() -> Path:
-    path = data_dir() / "uploads"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def models_dir() -> Path:
     path = data_dir() / "models"
     path.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,10 @@ def avatar_dir(model_id: str) -> Path:
 
 
 def save_image_upload(data: bytes) -> str:
-    """Validate and store an uploaded image. Returns its relative media URL."""
+    """Validate and store an uploaded image. Returns its media URL.
+
+    Blocking (it may upload to S3): call it through ``asyncio.to_thread``.
+    """
     if not data:
         raise UploadRejectedError("Tệp ảnh trống.")
     if len(data) > MAX_UPLOAD_BYTES:
@@ -92,20 +95,26 @@ def save_image_upload(data: bytes) -> str:
     ext = _EXT_BY_FORMAT.get(image_format)
     if ext is None:
         raise UploadRejectedError("Chỉ hỗ trợ ảnh JPG, PNG hoặc WEBP.")
-    name = f"{uuid4().hex}.{ext}"
-    (uploads_dir() / name).write_bytes(data)
-    return f"{MEDIA_UPLOADS_PREFIX}{name}"
+    key = f"{UPLOADS_PREFIX}{uuid4().hex}.{ext}"
+    store = storage.get_store()
+    store.put_bytes(key, data, storage.content_type_for(key))
+    return store.url(key)
+
+
+def upload_key(url: str | None) -> str | None:
+    """The store key (``uploads/<name>``) behind an uploaded file's URL, if it is one."""
+    if not url:
+        return None
+    key = storage.get_store().key_for_url(url)
+    if key is None or not key.startswith(UPLOADS_PREFIX) or key.count("/") != 1:
+        return None
+    return key
 
 
 def resolve_media_path(url: str | None) -> Path | None:
-    """Map a relative ``/media/uploads/<name>`` URL back to its file, if any."""
-    if not url or not url.startswith(MEDIA_UPLOADS_PREFIX):
-        return None
-    name = url[len(MEDIA_UPLOADS_PREFIX) :]
-    if not name or "/" in name or "\\" in name or name.startswith("."):
-        return None
-    path = uploads_dir() / name
-    return path if path.is_file() else None
+    """A local file for an uploaded file's URL, downloaded from S3 if needed."""
+    key = upload_key(url)
+    return storage.local_file(key) if key is not None else None
 
 
 def image_source_for_agent(url: str | None) -> str | None:
@@ -121,9 +130,13 @@ def image_source_for_agent(url: str | None) -> str | None:
 def remove_model_files(model_id: str, image_url: str | None) -> None:
     """Delete a model's avatar assets and its uploaded portrait. Best-effort."""
     shutil.rmtree(avatar_dir(model_id), ignore_errors=True)
-    portrait = resolve_media_path(image_url)
-    if portrait is not None:
-        portrait.unlink(missing_ok=True)
+    key = upload_key(image_url)
+    if key is None:
+        return
+    try:
+        storage.get_store().delete(key)
+    except Exception:
+        logger.warning("could not delete portrait %s", key, exc_info=True)
 
 
 # ------------------------------------------------------------ motion avatar

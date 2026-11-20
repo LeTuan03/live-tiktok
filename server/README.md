@@ -98,9 +98,9 @@ SoShop uses Postgres for user and app state. The demo is built against [Neon](ht
    ```bash
    psql "$DATABASE_URL" -c "select 1;"
    ```
-5. Apply the schema:
+5. Apply the schema, every numbered migration in order:
    ```bash
-   psql "$DATABASE_URL" -f migrations/0001_initial_schema.up.sql
+   for f in migrations/0*.up.sql; do psql "$DATABASE_URL" -f "$f"; done
    ```
 6. Seed the demo host and catalog:
    ```bash
@@ -138,8 +138,9 @@ See `.env.example` for the full list. Required for runtime:
 | `LEMONSLICE_API_KEY` | LemonSlice avatar |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_ENDPOINT_URL_S3` / `BUCKET_NAME` | S3-compatible asset bucket |
 | `S3_REGION` / `S3_PUBLIC_URL` | Region used for SigV4, plus the CDN-friendly base for public read URLs |
+| `MEDIA_STORAGE` | `local` (default) or `s3`: where studio uploads and promo video files live, see [Media storage](#media-storage-local-or-s3) |
 
-`DATABASE_URL` and the provider keys (LiveKit, Groq, ElevenLabs, LemonSlice) are what the live demo needs. The `AWS_*` / `BUCKET_NAME` / `S3_*` vars are only used by the asset-upload and `/customize` avatar flows; the app boots and serves the feed without them.
+`DATABASE_URL` and the provider keys (LiveKit, Groq, ElevenLabs, LemonSlice) are what the live demo needs. The `AWS_*` / `BUCKET_NAME` / `S3_*` vars are used by the asset-upload and `/customize` avatar flows, and by the studio once `MEDIA_STORAGE=s3`; with the default `local` the app boots and serves everything without them.
 
 **Running without ElevenLabs or LemonSlice keys.** Only `GROQ_API_KEY` is strictly required. With `ELEVEN_API_KEY` blank the agent speaks through keyless voices (`EDGE_TTS_VOICE`, an Edge voice name or `google-<lang>`, see `soshop/agent/edge_voice.py`). With `LEMONSLICE_API_KEY` blank the agent publishes the persona image itself as a gently animated 9:16 video track (`soshop/agent/still_avatar.py`), with no lip sync. On Groq's free tier also set `CHANNEL_MIN_SLOT_SECONDS=20` so the rotation stays under the tokens-per-minute limit. The `/customize` voice picker still needs an ElevenLabs key.
 
@@ -155,7 +156,7 @@ How a session runs:
 4. The agent writes its state to `live_sessions.live_state` every few seconds and broadcasts it on `live_state`. A live session whose state goes quiet for 75 s is marked ended, so a crashed worker never leaves the studio stuck on "live".
 5. `POST /studio/sessions/{id}/end` asks the host to say goodbye, then deletes the room.
 
-Uploaded images and avatar assets are plain files under `DATA_DIR` (default `server/data/`, git-ignored). Uploads are served at `/media/uploads`.
+Uploaded images go to the media store (see [Media storage](#media-storage-local-or-s3)): `/media/uploads/<name>` on local storage, the bucket's public URL on S3. Motion-avatar assets and model weights are still plain files under `DATA_DIR` (default `server/data/`, git-ignored) on the machine that builds and plays them.
 
 What the host looks and sounds like, without provider keys:
 
@@ -190,13 +191,13 @@ Local setup notes that are easy to trip over:
 3. **Render.** `POST /promo/videos/{id}/render` runs the job inside the API process (`soshop.promo.runner`, one at a time). `soshop.promo.flow` opens a background Flow tab in the user's Chrome, creates a project, uploads the host portrait and the product photo, and per shot opens a fresh agent session, attaches both images, types the prompt from `soshop.promo.prompts`, checks the quoted cost (one video, at most the model's price) before approving it, waits for the new video tile and downloads the MP4 through DevTools' `Network.loadNetworkResource`. Each clip is then transcribed with Whisper (`PROMO_TRANSCRIBE_MODEL`) and scored against the scripted line (`speech_match`).
 4. **Assemble.** ffmpeg normalises the clips to 720x1280, appends a 2.5 s end card (product photo, name, price, buy button) and writes `video.mp4`, `thumb.jpg` and a WebVTT caption track timed by the measured speech.
 
-Files live in `data/promo/<id>/`. Shots that already have a clip are kept, so retrying a failed job or `POST /promo/videos/{id}/shots/{n}/regenerate` only spends credits on what is missing.
+The job state is a row in `promo_videos` (`migrations/0006_promo_videos.up.sql`), so every API machine sees the same videos. The files are in the media store under `promo/<id>/`: each clip is uploaded as soon as Flow hands it over, and a re-rendered file gets a new name so a CDN never serves an old take. Rendering works in `DATA_DIR/work/promo/<id>/`, dropped once the video is ready. Shots that already have a clip are kept, so retrying a failed job (on any machine) or `POST /promo/videos/{id}/shots/{n}/regenerate` only spends credits on what is missing. `GET /promo/videos/{id}/file`, `/thumb` and `/shots/{n}/clip` serve local files or redirect to the bucket; `/captions` is always served by the API, because a `<track>` must be same-origin or CORS.
 
 **How the server reaches Flow.** Flow has no public API and its requests need the browser's sign-in and reCAPTCHA. The SoShop Flow Bridge extension (`server/flow_extension/`, load it unpacked in the Chrome you use for Flow) dials into `ws://127.0.0.1:8000/promo/flow/bridge` and runs what the server sends on `flow.google.com` tabs only, through `chrome.debugger`. The WebSocket accepts only `chrome-extension://` origins. `GET /promo/flow/status` reports whether the extension is connected.
 
 Things that cost time to find out:
 
-- **The job tab is never painted.** Chrome does not render a background tab, so CDP mouse input is dropped (no hit-test data) and screenshots, which would force a paint, hang on and off. The driver therefore clicks and hovers with DOM events from inside the page; only text input, file inputs and downloads use CDP. `flow-error.txt` in the job directory records the page text when a step fails; `flow-error.png` is best effort.
+- **The job tab is never painted.** Chrome does not render a background tab, so CDP mouse input is dropped (no hit-test data) and screenshots, which would force a paint, hang on and off. The driver therefore clicks and hovers with DOM events from inside the page; only text input, file inputs and downloads use CDP. `flow-error.txt` in the job's work directory records the page text when a step fails; `flow-error.png` is best effort and is kept in the store for `GET /promo/videos/{id}/debug`.
 - **Clicks can land too early.** Flow's Angular app ignores clicks while it boots, so every state-changing click is retried until its effect shows (`_click_until`).
 - **The video URL redirects to googlevideo.com**, which page `fetch` cannot read (CORS). `Network.loadNetworkResource` loads it with the page's cookies instead.
 - **Flow's agent asks before spending credits** in its default "always confirm" mode; the driver reads the quote and refuses anything other than one clip at the expected price. Measured on 2026-11-15: Veo 3.1 Lite 10 credits per 8 s clip, Omni 1.2 Flash 24, Veo 3.1 Fast 20, Veo 3.1 Quality 100. Flow retires Veo 3.1 Fast and Quality on 2026-12-05.
@@ -212,11 +213,34 @@ Optional behavior knobs all have sane defaults and are documented inline in `.en
 - **Playback is derived, never ticked.** `broadcasts.playhead` stores where playback stood at one instant (`at_ms`, item, offset, playing). `soshop.broadcast.timeline.locate` walks forward from it through the slot lengths to find what is on air at any later instant, so nothing runs on the server while a show plays and a restart loses nothing. Control actions (`POST /broadcasts/{id}/control`: start, pause, resume, next, prev, jump, finish, stop) and every playlist edit re-anchor the playhead to "now" under a row lock; an edit keeps the current video playing from the same second. A show that runs off its end is marked ended the next time anyone reads it.
 - **Players.** Every response carries `playback` with `server_time_ms`. The web player (`web/lib/broadcast/timeline.ts`, the same algorithm in TypeScript, same tests) computes the position locally, keeps two `<video>` elements so the next slot is buffered before the swap, and re-seeks only when it drifts more than a second. `GET /broadcasts/{id}/events` is a server-sent event stream that re-sends the broadcast on every change; each stream closes after 25 s and the browser reconnects, so it never holds up a server shutdown.
 - **Going out to TikTok Live or YouTube Live.** `/onair/{id}` in the web app is a 9:16 page with only the video (plus a product card, hidden with `?clean=1`). Add it to OBS Studio as a Browser source and stream with the platform's stream key. A server-side RTMP output would follow the same timeline (`locate` gives the file and offset for any instant); it is not built.
-- **Uploads.** `POST /broadcasts/uploads` accepts H.264, AV1 (remuxed to MP4 with the index up front) or VP8/VP9 WebM up to 500 MB, stores it under `data/uploads/` with a thumbnail and a JSON sidecar holding the measured length. Needs `ffmpeg` on `PATH`.
+- **Uploads.** `POST /broadcasts/uploads` accepts H.264, AV1 (remuxed to MP4 with the index up front) or VP8/VP9 WebM up to 500 MB, checks and remuxes it in `DATA_DIR/work/uploads/`, then puts it in the media store under `uploads/` with a thumbnail and a JSON sidecar holding the measured length. Needs `ffmpeg` on `PATH`.
+
+## Media storage (local or S3)
+
+Studio uploads (portraits, product photos, intro and outro videos) and promo video files go through `soshop_server.storage`. Each file has a key such as `uploads/<uuid>.jpg` or `promo/<id>/video-<rev>.mp4`, and `MEDIA_STORAGE` picks where the keys live:
+
+| `MEDIA_STORAGE` | Files | Browsers read from |
+|---|---|---|
+| `local` (default) | `DATA_DIR/<key>` | the API at `/media/<key>` (range requests, only the `uploads/` and `promo/` folders) |
+| `s3` | `BUCKET_NAME/<key>` | `S3_PUBLIC_URL/<key>`, a CDN in front of the bucket. `/media/<key>` redirects there |
+
+Keys are never reused for different bytes, so objects are sent with `Cache-Control: public, max-age=86400`. A deploy that runs more than one API machine, or a machine with an ephemeral disk such as Fly, needs `s3`. The agent worker and the renderers fetch what they need into `DATA_DIR/cache/` and need the same `AWS_*` variables. `s3` also needs `BUCKET_NAME` and `S3_PUBLIC_URL`; the server refuses to start without them. The bucket must allow public reads (see Tigris and MinIO below).
+
+**Moving existing data.** After applying migration 0006, import the promo jobs that still live in `data/promo/<id>/job.json`:
+
+```bash
+psql "$DATABASE_URL" -f migrations/0006_promo_videos.up.sql
+uv run python scripts/migrate_media.py              # job.json -> promo_videos rows
+MEDIA_STORAGE=s3 uv run python scripts/migrate_media.py --upload   # then copy files to the bucket
+```
+
+Both steps are safe to repeat and accept `--dry-run`. URLs already stored in the database (`/media/uploads/...`) need no rewrite: on S3 the API redirects them to the bucket.
+
+Still local to one machine, until heavy jobs move to a worker: motion-avatar assets (`DATA_DIR/avatars/`), review videos (`DATA_DIR/videos/`) and model weights (`DATA_DIR/models/`).
 
 ## Asset hosting (S3-compatible)
 
-Product images and avatar uploads live in an S3-compatible bucket. The server talks to it through `soshop_server.assets`:
+The same bucket also serves the older presigned-upload flow. The server talks to it through `soshop_server.assets`:
 
 - `upload_bytes(key=..., data=..., content_type=...)` for server-side uploads.
 - `generate_presigned_put_url(key=..., content_type=...)` for short-lived signed URLs so clients can upload directly to the bucket (used by `POST /assets/upload-url`).

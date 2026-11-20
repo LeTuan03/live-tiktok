@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -130,8 +132,19 @@ class Settings(BaseSettings):
     BUCKET_NAME: str | None = None
     S3_REGION: str = "auto"
     S3_PUBLIC_URL: str | None = None
+    # Where studio uploads and promo video files are kept (soshop_server.storage).
+    # "local": under DATA_DIR, served by the API at /media. "s3": in BUCKET_NAME,
+    # read by browsers from S3_PUBLIC_URL (put a CDN there). Every API and agent
+    # machine of one deploy must use the same backend.
+    MEDIA_STORAGE: Literal["local", "s3"] = "local"
 
     model_config = {"env_file": (".env", ".env.local"), "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _check_media_storage(self) -> Settings:
+        if self.MEDIA_STORAGE == "s3" and not (self.BUCKET_NAME and self.S3_PUBLIC_URL):
+            raise ValueError("MEDIA_STORAGE=s3 needs BUCKET_NAME and S3_PUBLIC_URL")
+        return self
 
     @model_validator(mode="after")
     def _resolve_livekit_credentials(self) -> Settings:

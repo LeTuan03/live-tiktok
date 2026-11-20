@@ -11,6 +11,8 @@ dependencies = [
     "asyncpg",
     "httpx>=0.28.1",
     "aioboto3>=15.5.0",
+    # Sync S3 client for the media store (soshop_server.storage); aioboto3 pins it.
+    "boto3",
     "opentelemetry-api~=1.39",
     "opentelemetry-sdk~=1.39",
     # The instrumentation packages live on a parallel pre-release version
@@ -96,6 +98,8 @@ module = [
     "asyncpg.*",
     "aioboto3",
     "aioboto3.*",
+    "boto3",
+    "boto3.*",
     "botocore",
     "botocore.*",
     "livekit.plugins",

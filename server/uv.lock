@@ -3161,6 +3161,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
     { name = "asyncpg" },
+    { name = "boto3" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "livekit-agents" },
@@ -3194,6 +3195,7 @@ dev = [
 requires-dist = [
     { name = "aioboto3", specifier = ">=15.5.0" },
     { name = "asyncpg" },
+    { name = "boto3" },
     { name = "fastapi", extras = ["standard"] },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "livekit-agents", specifier = "~=1.4.6" },

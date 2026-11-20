@@ -1,7 +1,7 @@
 """Livestream sessions against a real Postgres (needs migrations 0004 and 0005).
 
 Skips when ``DATABASE_URL`` is not set so the default ``uv run pytest`` stays
-hermetic. Promo videos and uploads are fake files under a temporary
+hermetic. Promo videos are rows in promo_videos, uploads fake files under a temporary
 ``DATA_DIR``; the rows created here are deleted at the end.
 """
 
@@ -44,19 +44,25 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def promo_video(root: Path, product: catalog.CatalogProduct, seconds: float) -> str:
-    job, path = jobs.new_job(
-        root,
+async def promo_video(
+    conn: asyncpg.Connection, product: catalog.CatalogProduct, seconds: float
+) -> str:
+    job = jobs.new_job(
         product=PromoProduct(id=product.id, name="snapshot name", price=1000),
         host=PromoHost(name="Mai"),
         language="vi",
         shot_count=3,
         flow_model="Veo 3.1 - Lite",
     )
-    (path / jobs.VIDEO_FILE).write_bytes(b"mp4")
+    job.video_key = jobs.new_key(job.id, "video", "mp4")
     job.status, job.duration_s = "ready", seconds
-    jobs.save(path, job)
+    await jobs.insert(conn, job)
     return job.id
+
+
+async def forget_product(conn: asyncpg.Connection, product: catalog.CatalogProduct) -> None:
+    await conn.execute("DELETE FROM promo_videos WHERE product_id = $1", product.id)
+    await conn.execute("DELETE FROM products WHERE id = $1", to_uuid(product.id))
 
 
 def uploaded_video(root: Path, seconds: float) -> str:
@@ -72,8 +78,8 @@ async def test_broadcast_playlist_and_playback(conn: asyncpg.Connection, data_di
     product = await catalog.create_product(
         conn, {"name": "pytest phiên son", "price": 59000, "image_url": "/media/uploads/x.jpg"}
     )
-    first_video = promo_video(data_dir, product, 20.0)
-    second_video = promo_video(data_dir, product, 30.0)
+    first_video = await promo_video(conn, product, 20.0)
+    second_video = await promo_video(conn, product, 30.0)
     created = await broadcasts.create_broadcast(conn, {"title": "pytest phiên live"})
     bid = created.id
     try:
@@ -129,12 +135,12 @@ async def test_broadcast_playlist_and_playback(conn: asyncpg.Connection, data_di
         assert ended.playback.status == "ended" and ended.playback.playhead is None
     finally:
         await conn.execute("DELETE FROM broadcasts WHERE id = $1", to_uuid(bid))
-        await conn.execute("DELETE FROM products WHERE id = $1", to_uuid(product.id))
+        await forget_product(conn, product)
 
 
 async def test_count_mode_show_ends_by_itself(conn: asyncpg.Connection, data_dir: Path) -> None:
     product = await catalog.create_product(conn, {"name": "pytest phiên hết giờ"})
-    video = promo_video(data_dir, product, 10.0)
+    video = await promo_video(conn, product, 10.0)
     created = await broadcasts.create_broadcast(
         conn, {"title": "pytest đếm vòng", "loop_mode": "count", "loop_count": 2}
     )
@@ -156,7 +162,7 @@ async def test_count_mode_show_ends_by_itself(conn: asyncpg.Connection, data_dir
         assert summaries[created.id].item_count == 1
     finally:
         await conn.execute("DELETE FROM broadcasts WHERE id = $1", bid)
-        await conn.execute("DELETE FROM products WHERE id = $1", to_uuid(product.id))
+        await forget_product(conn, product)
 
 
 async def test_unknown_or_unplayable_sources(conn: asyncpg.Connection, data_dir: Path) -> None:

@@ -1998,6 +1998,10 @@ export type Shot = {
  */
 export type ShotState = {
     /**
+     * Clip Key
+     */
+    clip_key?: string | null;
+    /**
      * Error
      */
     error?: string | null;
@@ -2310,6 +2314,10 @@ export type VideoJob = {
  */
 export type VideoOut = {
     /**
+     * Captions Key
+     */
+    captions_key?: string | null;
+    /**
      * Created At
      */
     created_at: string;
@@ -2317,6 +2325,10 @@ export type VideoOut = {
      * Credits Estimate
      */
     credits_estimate: number;
+    /**
+     * Debug Key
+     */
+    debug_key?: string | null;
     /**
      * Duration S
      */
@@ -2373,9 +2385,17 @@ export type VideoOut = {
      */
     status?: 'draft' | 'queued' | 'rendering' | 'assembling' | 'ready' | 'failed';
     /**
+     * Thumb Key
+     */
+    thumb_key?: string | null;
+    /**
      * Updated At
      */
     updated_at: string;
+    /**
+     * Video Key
+     */
+    video_key?: string | null;
 };
 
 /**

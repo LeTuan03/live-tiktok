@@ -1,33 +1,37 @@
-"""Promo video jobs, one directory each under ``data/promo/<job_id>/``.
+"""Promo video jobs: state in Postgres, files in the media store.
 
-``job.json`` holds the whole state (product and host snapshots, script,
-per-shot progress); next to it live the reference images handed to Flow, the
-raw clips Flow returns (``shot-N.mp4``), and the final ``video.mp4``,
-``thumb.jpg`` and ``captions.vtt``. Snapshots mean a video stays consistent
-with what was on screen when it was made, even if the product is edited later.
+One row per job in ``promo_videos`` (migration 0006). ``state`` holds the
+whole :class:`PromoJob`: product and host snapshots, script, per-shot
+progress, and the media-store key of every file the job made (one clip per
+shot, the final video, its thumbnail and captions, the last Flow error
+screenshot). Snapshots keep a video consistent with what was on screen when
+it was made, even if the product is edited later.
+
+Files live under ``promo/<job_id>/`` in the store (:mod:`soshop_server.storage`).
+A re-rendered file gets a new name, so a CDN never serves an old take. Work
+that needs files on disk (Flow downloads, ffmpeg) happens in
+:func:`work_dir`, scratch space on the rendering machine.
+
+The functions take an asyncpg connection or pool. Nothing here talks to the
+browser, so ``tests/promo/`` stays hermetic.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from soshop.promo.script import PromoHost, PromoProduct, PromoScript
+from soshop_server import storage
 
 JobStatus = Literal["draft", "queued", "rendering", "assembling", "ready", "failed"]
 ShotStatus = Literal["pending", "submitting", "generating", "downloading", "done", "failed"]
-
-JOB_FILE = "job.json"
-VIDEO_FILE = "video.mp4"
-THUMB_FILE = "thumb.jpg"
-CAPTIONS_FILE = "captions.vtt"
 
 
 class ShotState(BaseModel):
@@ -38,12 +42,19 @@ class ShotState(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     has_clip: bool = False
+    clip_key: str | None = None
+    """Media-store key of the clip Flow rendered for this shot."""
     transcript: str | None = None
     """What Whisper heard in the clip."""
     speech_match: float | None = None
     """Share of the scripted words heard, in order (0 to 1)."""
     speech_start: float | None = None
     speech_end: float | None = None
+
+    def drop_clip(self) -> str | None:
+        """Forget the clip so the next render makes a new one. Returns its key."""
+        key, self.clip_key, self.has_clip = self.clip_key, None, False
+        return key
 
 
 class PromoJob(BaseModel):
@@ -62,45 +73,60 @@ class PromoJob(BaseModel):
     created_at: datetime
     updated_at: datetime
     duration_s: float | None = None
+    video_key: str | None = None
+    thumb_key: str | None = None
+    captions_key: str | None = None
+    debug_key: str | None = None
+    """The Flow tab as it looked when the last step failed."""
 
     @property
     def busy(self) -> bool:
         return self.status in ("queued", "rendering", "assembling")
+
+    def file_keys(self) -> list[str]:
+        """Every media-store key the job points at."""
+        keys = [self.video_key, self.thumb_key, self.captions_key, self.debug_key]
+        keys += [shot.clip_key for shot in self.shots]
+        return [key for key in keys if key]
 
 
 def now() -> datetime:
     return datetime.now(UTC)
 
 
-def root_dir(data_dir: Path) -> Path:
-    path = data_dir / "promo"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def valid_id(job_id: str) -> bool:
+    return 0 < len(job_id) <= 64 and job_id.isascii() and job_id.isalnum()
 
 
-def job_dir(data_dir: Path, job_id: str) -> Path | None:
-    """The job's directory, or ``None`` for an unknown or malformed id."""
-    if not job_id or not all(ch.isalnum() for ch in job_id):
-        return None
-    path = root_dir(data_dir) / job_id
-    return path if (path / JOB_FILE).is_file() else None
+def key(job_id: str, name: str) -> str:
+    """The media-store key of file ``name`` of job ``job_id``."""
+    return f"promo/{job_id}/{name}"
+
+
+def new_key(job_id: str, stem: str, ext: str) -> str:
+    """A fresh key for a newly rendered file, e.g. ``promo/<id>/video-<rev>.mp4``."""
+    return key(job_id, storage.new_name(stem, ext))
+
+
+def work_dir(job_id: str) -> Path:
+    """Scratch directory for one job on this machine."""
+    if not valid_id(job_id):
+        raise ValueError(f"invalid promo job id: {job_id!r}")
+    return storage.work_dir("promo", job_id)
 
 
 def new_job(
-    data_dir: Path,
     *,
     product: PromoProduct,
     host: PromoHost,
     language: Literal["vi", "en"],
     shot_count: int,
     flow_model: str,
-) -> tuple[PromoJob, Path]:
-    job_id = uuid4().hex
-    path = root_dir(data_dir) / job_id
-    path.mkdir(parents=True)
+) -> PromoJob:
+    """A fresh draft job, not yet stored (see :func:`insert`)."""
     stamp = now()
-    job = PromoJob(
-        id=job_id,
+    return PromoJob(
+        id=uuid4().hex,
         product=product,
         host=host,
         language=language,
@@ -109,33 +135,105 @@ def new_job(
         created_at=stamp,
         updated_at=stamp,
     )
-    save(path, job)
-    return job, path
 
 
-def save(path: Path, job: PromoJob) -> None:
-    """Write ``job.json`` atomically so a reader never sees half a file."""
-    job.updated_at = now()
-    tmp = path / f"{JOB_FILE}.tmp"
-    tmp.write_text(job.model_dump_json(indent=1), encoding="utf-8")
-    os.replace(tmp, path / JOB_FILE)
-
-
-def load(path: Path) -> PromoJob | None:
+def _parse(raw: Any) -> PromoJob | None:
     try:
-        return PromoJob.model_validate(json.loads((path / JOB_FILE).read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        return PromoJob.model_validate(data)
+    except ValueError:
         return None
 
 
-def list_all(data_dir: Path) -> list[PromoJob]:
-    jobs = [job for p in root_dir(data_dir).iterdir() if p.is_dir() and (job := load(p))]
-    return sorted(jobs, key=lambda j: j.created_at, reverse=True)
+async def insert(db: Any, job: PromoJob) -> None:
+    await db.execute(
+        """
+        INSERT INTO promo_videos (id, product_id, status, state, created_at, updated_at)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        """,
+        job.id,
+        job.product.id,
+        job.status,
+        job.model_dump_json(),
+        job.created_at,
+        job.updated_at,
+    )
 
 
-def clip_path(path: Path, index: int) -> Path:
-    return path / f"shot-{index + 1}.mp4"
+async def save(db: Any, job: PromoJob) -> bool:
+    """Write the whole job. False when the row is gone (the video was deleted)."""
+    job.updated_at = now()
+    result = await db.execute(
+        """
+        UPDATE promo_videos
+           SET product_id = $2, status = $3, state = $4::jsonb, updated_at = $5
+         WHERE id = $1
+        """,
+        job.id,
+        job.product.id,
+        job.status,
+        job.model_dump_json(),
+        job.updated_at,
+    )
+    return str(result).endswith(" 1")
 
 
-def remove(path: Path) -> None:
-    shutil.rmtree(path, ignore_errors=True)
+async def load(db: Any, job_id: str) -> PromoJob | None:
+    if not valid_id(job_id):
+        return None
+    raw = await db.fetchval("SELECT state FROM promo_videos WHERE id = $1", job_id)
+    return _parse(raw) if raw is not None else None
+
+
+async def load_many(db: Any, job_ids: set[str]) -> dict[str, PromoJob]:
+    ids = sorted(i for i in job_ids if valid_id(i))
+    if not ids:
+        return {}
+    rows = await db.fetch(
+        "SELECT state FROM promo_videos WHERE id = ANY($1::text[])",
+        ids,
+    )
+    found = (_parse(row["state"]) for row in rows)
+    return {job.id: job for job in found if job is not None}
+
+
+async def list_all(db: Any, product_id: str | None = None) -> list[PromoJob]:
+    rows = await db.fetch(
+        """
+        SELECT state FROM promo_videos
+         WHERE $1::text IS NULL OR product_id = $1
+         ORDER BY created_at DESC
+        """,
+        product_id,
+    )
+    return [job for row in rows if (job := _parse(row["state"])) is not None]
+
+
+async def list_busy(db: Any) -> list[PromoJob]:
+    rows = await db.fetch(
+        "SELECT state FROM promo_videos WHERE status IN ('queued', 'rendering', 'assembling')"
+    )
+    return [job for row in rows if (job := _parse(row["state"])) is not None]
+
+
+async def delete(db: Any, job_id: str) -> None:
+    await db.execute("DELETE FROM promo_videos WHERE id = $1", job_id)
+
+
+def remove_files(job_id: str) -> None:
+    """Delete a job's stored files and scratch directory. Blocking, best-effort."""
+    if not valid_id(job_id):
+        return
+    storage.get_store().delete_prefix(f"promo/{job_id}")
+    shutil.rmtree(storage.data_root() / "work" / "promo" / job_id, ignore_errors=True)
+
+
+def delete_keys(keys: list[str | None]) -> None:
+    """Delete files that a newer render replaced. Blocking, best-effort."""
+    store = storage.get_store()
+    for item in keys:
+        if item and storage.valid_key(item):
+            try:
+                store.delete(item)
+            except Exception:  # noqa: S112 - leftover files only cost storage
+                continue
