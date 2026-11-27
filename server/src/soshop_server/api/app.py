@@ -17,6 +17,7 @@ from soshop.api.routes import (
     live,
     personas,
     promo,
+    restream,
     studio,
 )
 from soshop.observability import metrics as metrics_obs
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(studio.router)
     app.include_router(promo.router)
     app.include_router(broadcasts.router)
+    app.include_router(restream.router)
     # Studio uploads and promo video files: local disk or a CDN-fronted bucket.
     install_media(app)
     app.include_router(metrics_obs.metrics_router)

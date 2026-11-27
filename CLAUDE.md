@@ -7,6 +7,8 @@ A demo of AI-hosted live shopping, built on LemonSlice. Two independent subsyste
 | Backend API + LiveKit agent | `server/` | Python 3.11, FastAPI, asyncpg, uv | yes |
 | Consumer feed | `web/` | Next.js 15 (App Router), Tailwind | yes |
 
+`desktop/` packages both into a Windows installer (`SoShop-Setup.exe`, a C# launcher that runs Postgres, LiveKit, the API, the worker and the web app as plain processes). It has no code of its own beyond packaging; see `desktop/README.md`. If you change how the server or web app is started or configured (env vars, ports, commands), check `desktop/launcher/Stack.cs` as well as `docker-compose.yml`.
+
 The two subsystems are **not** a Yarn/pnpm/Cargo workspace. There is no root `package.json` or `pyproject.toml`. Build, test, and CI run independently per subsystem. Pick the directory you are working in and use *its* `CLAUDE.md` for commands and conventions.
 
 ## Brand tokens

@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SoShop-Setup.exe: a small installer with the whole app appended to it as a
+    zip (desktop/build-app.ps1 does the appending). Per-user install, no admin
+    rights. Targets .NET Framework 4.7.2, built into Windows 10 and 11.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>SoShop-Setup</AssemblyName>
+    <RootNamespace>SoShop</RootNamespace>
+    <ApplicationIcon>..\assets\soshop.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.0.0</Version>
+    <Product>SoShop</Product>
+    <Company>SoShop</Company>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\*.cs" />
+  </ItemGroup>
+
+</Project>

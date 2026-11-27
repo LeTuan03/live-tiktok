@@ -1,98 +1,99 @@
 # Hướng dẫn cài và chạy SoShop
 
-SoShop chạy hoàn toàn trên máy của bạn. Chỉ cần cài **Docker Desktop**, mọi thứ còn lại (cơ sở dữ liệu, máy chủ live, AI dẫn live, giao diện web) được tự động cài khi chạy lần đầu.
+SoShop chạy hoàn toàn trên máy của bạn. Trên Windows chỉ cần **một file cài đặt**: không cần Docker, không cần cài Python hay cơ sở dữ liệu, không cần quyền quản trị.
 
 ## Cần chuẩn bị
 
 | Thứ cần có | Ghi chú |
 |---|---|
-| Máy Windows 10/11, RAM từ 8 GB (khuyên dùng 16 GB) | Còn trống khoảng 15 GB ổ đĩa |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Cài xong, mở lên một lần và đồng ý điều khoản |
+| Máy Windows 10/11 64-bit, RAM từ 8 GB (khuyên dùng 16 GB) | Còn trống khoảng 6 GB ổ đĩa, thêm chỗ cho video |
+| File **`SoShop-Setup-<phiên bản>.exe`** | Người phát hành gửi cho bạn (Google Drive, USB...) |
 | Groq API key (miễn phí) | Lấy tại [console.groq.com/keys](https://console.groq.com/keys) |
-| Google Chrome | Chỉ cần nếu muốn tạo video sản phẩm bằng Google Flow |
+| Google Chrome | Chỉ cần nếu tạo video sản phẩm bằng Google Flow |
 
-## Chạy lần đầu
+## Cài đặt (khoảng 5 phút)
 
-1. Giải nén file **`SoShop-<phiên bản>.zip`** được gửi cho bạn, ví dụ vào `D:\SoShop`.
-2. Bấm đúp **`soshop-start.cmd`**.
-3. Khi được hỏi, dán Groq API key rồi bấm Enter.
-4. Nếu được hỏi **Token**, dán token mà người gửi bộ cài cấp cho bạn (chỉ hỏi một lần).
-5. Chờ tải bộ cài (khoảng 3 đến 4 GB). Lần đầu mất khoảng 10 đến 20 phút tùy tốc độ mạng. Các lần sau chỉ vài giây.
-6. Trình duyệt tự mở **http://localhost:3000/studio**. Xong.
+1. Bấm đúp **`SoShop-Setup-<phiên bản>.exe`**.
+   - Nếu Windows hiện "Windows protected your PC" (Windows đã bảo vệ máy tính), bấm **More info** (Thông tin thêm) rồi **Run anyway** (Vẫn chạy). Bộ cài chưa được ký số nên Windows hỏi lại một lần.
+2. Bấm **Cài đặt**, chờ thanh tiến trình chạy hết.
+3. Bấm **Mở SoShop**.
+4. Lần đầu, SoShop hỏi Groq API key: dán key rồi bấm **Lưu**.
+5. Chờ các dòng trạng thái chuyển sang màu xanh (lần đầu khoảng 1 đến 2 phút). Trình duyệt tự mở **Studio** (http://localhost:3000/studio).
 
-Lần đầu mở một phiên live, máy tải thêm model avatar (khoảng 900 MB), nên hình có thể chờ vài phút mới lên.
+Lần sau chỉ cần bấm biểu tượng **SoShop** trên Desktop hoặc trong menu Start.
 
-## Dùng hằng ngày
+## Cửa sổ SoShop
 
-| Muốn làm gì | Cách làm |
+| Nút | Dùng để |
 |---|---|
-| Bật SoShop | Bấm đúp `soshop-start.cmd` |
-| Tắt SoShop | Bấm đúp `soshop-stop.cmd` (dữ liệu vẫn được giữ) |
-| Mở studio | http://localhost:3000/studio |
-| Xem feed như người mua | http://localhost:3000 |
+| **Mở Studio** | Mở trang quản lý sản phẩm, video và phiên live trong trình duyệt |
+| **Kết nối Google Flow** | Hướng dẫn từng bước cài tiện ích Chrome để tạo video bằng Flow |
+| **Cài đặt** | Đổi Groq key, giọng đọc, key ElevenLabs hoặc LemonSlice |
+| **Sao lưu dữ liệu** | Xuất toàn bộ sản phẩm, video, phiên live ra một file `.zip` |
+| **Khôi phục dữ liệu** | Nạp lại dữ liệu từ file `.zip` đó (ví dụ trên máy mới) |
+| **Nhật ký** | Mở thư mục nhật ký khi cần báo lỗi |
 
-Trong studio:
+**Đóng cửa sổ SoShop là tắt SoShop.** Studio và màn hình phát live chỉ chạy khi cửa sổ này đang mở (có thể thu nhỏ). Dữ liệu luôn được giữ lại.
+
+Trong Studio:
 
 - **Sản phẩm** (`/studio/products`): thêm sản phẩm, ảnh, giá, điểm nổi bật.
-- **Video** (`/studio/videos`): tạo video quảng cáo cho từng sản phẩm bằng Google Flow (xem bên dưới).
-- **Phiên live** (`/studio/live`): xếp các video thành playlist, bấm phát, tạm dừng, chuyển sản phẩm. Màn hình phát dọc 9:16 nằm ở `/onair/<mã phiên>`, có thể đưa vào OBS (Browser Source) để phát lên TikTok hoặc YouTube.
+- **Video** (`/studio/videos`): tạo video quảng cáo cho từng sản phẩm bằng Google Flow.
+- **Phiên live** (`/studio/live`): xếp các video thành playlist, bấm phát, tạm dừng, chuyển sản phẩm. Màn hình phát dọc 9:16 nằm ở `/onair/<mã phiên>`, đưa vào OBS (Browser Source) để phát lên TikTok hoặc YouTube.
 
-## Tạo video bằng Google Flow (tùy chọn)
+## Kết nối Google Flow (mỗi máy làm một lần)
 
-SoShop điều khiển Google Flow trong Chrome của bạn, dùng credit Flow trong tài khoản Google của bạn.
+SoShop điều khiển Google Flow ngay trong Chrome của bạn và dùng credit Flow trong tài khoản Google của bạn. Bấm **Kết nối Google Flow** trong cửa sổ SoShop và làm theo 4 bước hiện ra:
 
-1. Mở Chrome, vào `chrome://extensions`, bật **Developer mode** (góc trên bên phải).
-2. Bấm **Load unpacked** và chọn thư mục `flow_extension` trong thư mục SoShop (bản mã nguồn: `server\flow_extension`).
-3. Đăng nhập Google Flow (https://flow.google.com) trong Chrome đó.
-4. Giữ Chrome mở khi SoShop đang tạo video.
+1. Bấm **Mở trang Tiện ích của Chrome** (đường dẫn thư mục tiện ích được chép sẵn).
+2. Bật **Chế độ dành cho nhà phát triển** (Developer mode) ở góc trên bên phải.
+3. Bấm **Tải tiện ích đã giải nén** (Load unpacked), dán đường dẫn vào ô địa chỉ của hộp chọn thư mục, bấm Enter rồi **Chọn thư mục**.
+4. Đăng nhập Google Flow trong Chrome đó.
 
-## Đổi cài đặt
+Khi dòng **Google Flow** trong cửa sổ SoShop chuyển sang xanh là xong. Giữ Chrome mở khi SoShop đang tạo video.
 
-Mọi cài đặt nằm trong file **`soshop.env`** (tạo tự động ở lần chạy đầu). Mở bằng Notepad, sửa, lưu lại, rồi bấm đúp `soshop-start.cmd` để áp dụng.
+## Chuyển dữ liệu sang máy khác
 
-| Cài đặt | Ý nghĩa |
-|---|---|
-| `GROQ_API_KEY` | Key Groq, bắt buộc để AI nói và viết kịch bản |
-| `EDGE_TTS_VOICE` | Giọng đọc miễn phí. `google-vi` là tiếng Việt |
-| `ELEVEN_API_KEY` | Giọng ElevenLabs (trả phí), bỏ trống nếu không dùng |
-| `LEMONSLICE_API_KEY` | Avatar LemonSlice (trả phí), bỏ trống để dùng avatar có sẵn |
-| `CHANNEL_MIN_SLOT_SECONDS` | Giữ `20` với Groq miễn phí để không vượt giới hạn |
+1. Ở máy cũ: bấm **Sao lưu dữ liệu**, lưu file `SoShop-du-lieu-<ngày>.zip`.
+2. Chép file đó sang máy mới (USB, Google Drive...).
+3. Ở máy mới: cài SoShop, bấm **Khôi phục dữ liệu**, chọn file vừa chép.
+
+Máy cũ đang chạy bản Docker hoặc bản mã nguồn (`dev.ps1`)? Xuất dữ liệu bằng lệnh sau trong thư mục mã nguồn, rồi khôi phục ở máy mới như bước 3:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\export-data.ps1               # bản mã nguồn (dev.ps1)
+powershell -ExecutionPolicy Bypass -File tools\export-data.ps1 -From docker  # bản Docker
+```
 
 ## Cập nhật bản mới
 
-Nhận file zip bản mới, giải nén **đè lên thư mục cũ** (giữ nguyên file `soshop.env`), rồi bấm đúp `soshop-start.cmd`. SoShop tự tải phần mới và cập nhật cơ sở dữ liệu, dữ liệu cũ vẫn còn.
+Bấm đúp file `SoShop-Setup-<phiên bản mới>.exe` và cài đè (đóng cửa sổ SoShop trước). Dữ liệu, cài đặt và tiện ích Chrome vẫn giữ nguyên.
 
 ## Gặp sự cố
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| "Chưa cài Docker Desktop" | Cài Docker Desktop, mở lên một lần, chạy lại `soshop-start.cmd` |
-| "Các cổng sau đang bị chương trình khác dùng" | Tắt chương trình đang dùng cổng 3000, 8000 hoặc 7880, rồi chạy lại |
-| Studio mở được nhưng AI không nói | Kiểm tra `GROQ_API_KEY` trong `soshop.env`, rồi chạy lại `soshop-start.cmd` |
-| Phiên live không có hình | Chờ vài phút ở lần đầu (đang tải model avatar). Vẫn không được thì tắt rồi bật lại SoShop |
-| Muốn xem nhật ký lỗi | Mở PowerShell trong thư mục SoShop, chạy `powershell -File tools\soshop.ps1 logs` |
-| Muốn xóa sạch dữ liệu, làm lại từ đầu | Chạy `docker compose down -v` trong thư mục SoShop (xóa toàn bộ sản phẩm, video, phiên live) |
+| "Các cổng sau đang bị chương trình khác dùng" | Tắt chương trình được nêu tên (ví dụ bản SoShop chạy bằng Docker), rồi bấm **Thử khởi động lại** |
+| Windows Firewall hỏi quyền cho `livekit-server` | Bấm **Allow** hoặc **Cancel** đều được: SoShop chỉ dùng mạng nội bộ trong máy |
+| Studio mở được nhưng AI không nói, không viết được kịch bản | Bấm **Cài đặt**, kiểm tra Groq API key |
+| Dòng **Google Flow** vẫn xám | Làm lại các bước ở mục Kết nối Google Flow. Trong `chrome://extensions`, bấm biểu tượng tải lại của tiện ích SoShop Flow Bridge |
+| Một dòng trạng thái báo **Lỗi** | Bấm **Nhật ký**, gửi các file `.log` trong thư mục đó cho người hỗ trợ |
+| Gỡ SoShop | Settings, Apps, Installed apps, chọn **SoShop**, Uninstall. SoShop hỏi có xóa dữ liệu hay giữ lại |
 
-Dùng macOS hoặc Linux: cài Docker, sao chép `soshop.env.example` thành `soshop.env`, điền key, rồi chạy `docker compose up -d` trong thư mục SoShop và mở http://localhost:3000/studio.
+Dữ liệu nằm ở `%LOCALAPPDATA%\SoShop` (bấm "Mở thư mục dữ liệu" ở cuối cửa sổ SoShop).
+
+## Bản Docker (macOS, Linux, hoặc máy đã có Docker)
+
+Bản Docker vẫn dùng được: cài Docker Desktop, giải nén `SoShop-<phiên bản>.zip`, bấm đúp `soshop-start.cmd` (Windows) hoặc sao chép `soshop.env.example` thành `soshop.env`, điền key rồi chạy `docker compose up -d` (macOS, Linux), sau đó mở http://localhost:3000/studio. Tắt bằng `soshop-stop.cmd` hoặc `docker compose down`. Xóa sạch dữ liệu bằng `docker compose down -v`.
 
 ## Dành cho người phát hành
 
-Từ bản mã nguồn, chạy `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 1.0.0`. Script build image (code Python chỉ còn bytecode), đẩy lên GHCR và tạo `dist\SoShop-1.0.0.zip` để gửi cho người dùng. Trước đó cần `docker login ghcr.io` bằng GitHub token có quyền `write:packages`. Nếu package để private, cấp cho người dùng một token chỉ có quyền `read:packages`.
+**Bộ cài Windows (khuyên dùng):**
 
-Không muốn dùng GHCR: thêm `-Offline`. Bộ cài (vài GB) được đóng luôn vào zip, người dùng không cần token và không cần tải gì thêm khi cài.
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\build-app.ps1 -Version 1.0.0
+```
 
-Gửi bản build, không gửi code
-Mình vừa thêm chế độ -Offline, đúng với ý "gửi bản build". Sau khi Docker ổn, bạn chạy:
+Kết quả là một file `dist\desktop\SoShop-Setup-1.0.0.exe` (khoảng 0,5 đến 1 GB) chứa đủ mọi thứ, code Python chỉ còn bytecode. Gửi đúng file đó. Chi tiết trong `desktop\README.md`.
 
-
-powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 1.0.0 -Offline
-Kết quả là file dist\SoShop-1.0.0.zip (vài GB) gồm:
-
-images\soshop-images.tar: bản build (server chỉ còn bytecode .pyc, web là JS đã build)
-soshop-start.cmd, soshop-stop.cmd, docker-compose.yml, soshop.env.example
-flow_extension\ (extension Chrome) và HUONG-DAN.md
-Gửi file zip qua Google Drive hoặc USB. Máy nhận làm như sau:
-
-Cài Docker Desktop.
-Giải nén, bấm đúp soshop-start.cmd, nhập Groq key. Script tự nạp bản build từ file .tar: không cần mạng để tải, không cần token, mất vài phút.
-Cài extension: vào chrome://extensions, bật Developer mode, bấm Load unpacked và chọn thư mục flow_extension.
+**Bản Docker:** `powershell -ExecutionPolicy Bypass -File tools\build-release.ps1 -Version 1.0.0` build image, đẩy lên GHCR và tạo `dist\SoShop-1.0.0.zip` (cần `docker login ghcr.io` bằng token có quyền `write:packages`; nếu package để private, cấp cho người dùng token chỉ có quyền `read:packages`). Thêm `-Offline` để đóng luôn image vào zip (vài GB), người dùng không cần token hay mạng nhanh.

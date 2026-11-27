@@ -653,6 +653,98 @@ export type CustomHostResponse = {
 };
 
 /**
+ * Destination
+ */
+export type Destination = {
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Has Key
+     */
+    has_key: boolean;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Key Hint
+     */
+    key_hint: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Platform
+     */
+    platform: 'tiktok' | 'shopee' | 'youtube' | 'custom';
+    /**
+     * Platform Label
+     */
+    platform_label: string;
+    /**
+     * Server Url
+     */
+    server_url: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * DestinationCreate
+ */
+export type DestinationCreate = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Platform
+     */
+    platform: 'tiktok' | 'shopee' | 'youtube' | 'custom';
+    /**
+     * Server Url
+     */
+    server_url: string;
+    /**
+     * Stream Key
+     */
+    stream_key?: string;
+};
+
+/**
+ * DestinationPatch
+ */
+export type DestinationPatch = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Server Url
+     */
+    server_url?: string | null;
+    /**
+     * Stream Key
+     */
+    stream_key?: string | null;
+};
+
+/**
+ * DestinationsResponse
+ */
+export type DestinationsResponse = {
+    /**
+     * Destinations
+     */
+    destinations: Array<Destination>;
+};
+
+/**
  * FavoriteRequest
  */
 export type FavoriteRequest = {
@@ -1221,6 +1313,59 @@ export type OkResponse = {
      * Ok
      */
     ok?: boolean;
+};
+
+/**
+ * Output
+ *
+ * One destination as seen from one broadcast.
+ */
+export type Output = {
+    destination: Destination;
+    /**
+     * Detail
+     */
+    detail: string;
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * State
+     */
+    state: 'off' | 'connecting' | 'live' | 'retrying' | 'error';
+    /**
+     * State At
+     */
+    state_at: string | null;
+};
+
+/**
+ * OutputSwitch
+ */
+export type OutputSwitch = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+};
+
+/**
+ * OutputsResponse
+ */
+export type OutputsResponse = {
+    /**
+     * Available
+     */
+    available: boolean;
+    /**
+     * Outputs
+     */
+    outputs: Array<Output>;
+    /**
+     * Problem
+     */
+    problem: string | null;
 };
 
 /**
@@ -3177,6 +3322,70 @@ export type UpdateItemBroadcastsBroadcastIdItemsItemIdPatchResponses = {
 
 export type UpdateItemBroadcastsBroadcastIdItemsItemIdPatchResponse = UpdateItemBroadcastsBroadcastIdItemsItemIdPatchResponses[keyof UpdateItemBroadcastsBroadcastIdItemsItemIdPatchResponses];
 
+export type ListOutputsBroadcastsBroadcastIdOutputsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Broadcast Id
+         */
+        broadcast_id: string;
+    };
+    query?: never;
+    url: '/broadcasts/{broadcast_id}/outputs';
+};
+
+export type ListOutputsBroadcastsBroadcastIdOutputsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListOutputsBroadcastsBroadcastIdOutputsGetError = ListOutputsBroadcastsBroadcastIdOutputsGetErrors[keyof ListOutputsBroadcastsBroadcastIdOutputsGetErrors];
+
+export type ListOutputsBroadcastsBroadcastIdOutputsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OutputsResponse;
+};
+
+export type ListOutputsBroadcastsBroadcastIdOutputsGetResponse = ListOutputsBroadcastsBroadcastIdOutputsGetResponses[keyof ListOutputsBroadcastsBroadcastIdOutputsGetResponses];
+
+export type SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutData = {
+    body: OutputSwitch;
+    path: {
+        /**
+         * Broadcast Id
+         */
+        broadcast_id: string;
+        /**
+         * Destination Id
+         */
+        destination_id: string;
+    };
+    query?: never;
+    url: '/broadcasts/{broadcast_id}/outputs/{destination_id}';
+};
+
+export type SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutError = SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutErrors[keyof SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutErrors];
+
+export type SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: OutputsResponse;
+};
+
+export type SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutResponse = SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutResponses[keyof SwitchOutputBroadcastsBroadcastIdOutputsDestinationIdPutResponses];
+
 export type ListCatalogCatalogProductsGetData = {
     body?: never;
     path?: never;
@@ -4172,6 +4381,107 @@ export type VideoThumbPromoVideosVideoIdThumbGetResponses = {
      */
     200: unknown;
 };
+
+export type ListDestinationsStreamDestinationsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/stream-destinations';
+};
+
+export type ListDestinationsStreamDestinationsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DestinationsResponse;
+};
+
+export type ListDestinationsStreamDestinationsGetResponse = ListDestinationsStreamDestinationsGetResponses[keyof ListDestinationsStreamDestinationsGetResponses];
+
+export type CreateDestinationStreamDestinationsPostData = {
+    body: DestinationCreate;
+    path?: never;
+    query?: never;
+    url: '/stream-destinations';
+};
+
+export type CreateDestinationStreamDestinationsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateDestinationStreamDestinationsPostError = CreateDestinationStreamDestinationsPostErrors[keyof CreateDestinationStreamDestinationsPostErrors];
+
+export type CreateDestinationStreamDestinationsPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: Destination;
+};
+
+export type CreateDestinationStreamDestinationsPostResponse = CreateDestinationStreamDestinationsPostResponses[keyof CreateDestinationStreamDestinationsPostResponses];
+
+export type DeleteDestinationStreamDestinationsDestinationIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Destination Id
+         */
+        destination_id: string;
+    };
+    query?: never;
+    url: '/stream-destinations/{destination_id}';
+};
+
+export type DeleteDestinationStreamDestinationsDestinationIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteDestinationStreamDestinationsDestinationIdDeleteError = DeleteDestinationStreamDestinationsDestinationIdDeleteErrors[keyof DeleteDestinationStreamDestinationsDestinationIdDeleteErrors];
+
+export type DeleteDestinationStreamDestinationsDestinationIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteDestinationStreamDestinationsDestinationIdDeleteResponse = DeleteDestinationStreamDestinationsDestinationIdDeleteResponses[keyof DeleteDestinationStreamDestinationsDestinationIdDeleteResponses];
+
+export type UpdateDestinationStreamDestinationsDestinationIdPatchData = {
+    body: DestinationPatch;
+    path: {
+        /**
+         * Destination Id
+         */
+        destination_id: string;
+    };
+    query?: never;
+    url: '/stream-destinations/{destination_id}';
+};
+
+export type UpdateDestinationStreamDestinationsDestinationIdPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateDestinationStreamDestinationsDestinationIdPatchError = UpdateDestinationStreamDestinationsDestinationIdPatchErrors[keyof UpdateDestinationStreamDestinationsDestinationIdPatchErrors];
+
+export type UpdateDestinationStreamDestinationsDestinationIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: Destination;
+};
+
+export type UpdateDestinationStreamDestinationsDestinationIdPatchResponse = UpdateDestinationStreamDestinationsDestinationIdPatchResponses[keyof UpdateDestinationStreamDestinationsDestinationIdPatchResponses];
 
 export type ListModelsStudioModelsGetData = {
     body?: never;

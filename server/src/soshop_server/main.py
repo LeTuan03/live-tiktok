@@ -61,9 +61,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await recover_orphans()
     except Exception:
         logger.exception("promo job recovery failed; continuing")
+    # Pushes on-air broadcasts to TikTok Live, Shopee Live and other RTMP
+    # destinations (soshop.restream). Off when RESTREAM_ENABLED is false.
+    from soshop.restream import runner as restream_runner
+
+    restream_task = restream_runner.start()
     try:
         yield
     finally:
+        if restream_task is not None:
+            restream_task.cancel()
+            try:
+                await restream_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception("restreamer raised during shutdown")
         reconciler_task.cancel()
         try:
             await reconciler_task
