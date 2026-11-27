@@ -25,7 +25,9 @@ from typing import Literal
 
 from soshop.broadcast.control import ON_AIR
 from soshop.broadcast.timeline import Position, Timeline, following
-from soshop.services.broadcasts import Broadcast, build_timeline
+from soshop.promo.assemble import price_label
+from soshop.restream.card import ProductCard
+from soshop.services.broadcasts import Broadcast, BroadcastItem, build_timeline
 
 MAX_LAG_MS = 2000
 """How far the feed may trail the derived position before it re-cues."""
@@ -55,6 +57,8 @@ class Source:
     url: str
     video_ms: int
     title: str = ""
+    card: ProductCard | None = None
+    """What to show about the product it sells, ``None`` for intro, outro and no product."""
 
 
 @dataclass(frozen=True)
@@ -103,15 +107,38 @@ class Show:
         return Cue(kind, position, source) if source is not None else None
 
 
+def product_cards(items: list[BroadcastItem]) -> dict[str, ProductCard]:
+    """The card of every product video, numbered by its place in the playlist.
+
+    The number counts product videos in playlist order, skipped ones
+    included, so it stays put when one video cannot play for a while.
+    """
+    cards: dict[str, ProductCard] = {}
+    for number, item in enumerate(items, start=1):
+        if item.product is None:
+            continue
+        product = item.product
+        cards[item.id] = ProductCard(
+            name=product.name,
+            price=price_label(product.price, product.currency),
+            number=number,
+            image_url=product.image_url,
+        )
+    return cards
+
+
 def show_of(broadcast: Broadcast) -> Show | None:
     """What is on air in ``broadcast``, or ``None`` when it is not on air."""
     playback = broadcast.playback
     where, head = playback.position, playback.playhead
     if playback.status not in ON_AIR or where is None or head is None:
         return None
+    cards = product_cards(broadcast.items)
     items = [broadcast.intro, *broadcast.items, broadcast.outro]
     sources = {
-        item.id: Source(item.video_url, max(round(item.video_s * 1000), 1), item.title)
+        item.id: Source(
+            item.video_url, max(round(item.video_s * 1000), 1), item.title, cards.get(item.id)
+        )
         for item in items
         if item is not None and item.playable and item.video_url and item.video_s
     }

@@ -35,6 +35,7 @@ export function adaptDestination(wire: WireDestination): Destination {
     serverUrl: wire.server_url,
     hasKey: wire.has_key,
     keyHint: wire.key_hint,
+    autoOn: wire.auto_on,
     createdAt: wire.created_at,
     updatedAt: wire.updated_at,
   };
@@ -100,6 +101,7 @@ export async function createDestination(input: DestinationInput): Promise<Destin
         name: input.name.trim(),
         server_url: input.serverUrl.trim(),
         stream_key: (input.streamKey ?? "").trim(),
+        auto_on: input.autoOn ?? false,
       },
     }),
   );
@@ -108,9 +110,10 @@ export async function createDestination(input: DestinationInput): Promise<Destin
 
 export async function updateDestination(
   id: string,
-  input: { name?: string; serverUrl?: string; streamKey?: string },
+  input: { name?: string; serverUrl?: string; streamKey?: string; autoOn?: boolean },
 ): Promise<Destination> {
   const body: DestinationPatch = {};
+  if (input.autoOn !== undefined) body.auto_on = input.autoOn;
   if (input.name !== undefined) body.name = input.name.trim();
   if (input.serverUrl !== undefined) body.server_url = input.serverUrl.trim();
   if (input.streamKey !== undefined) body.stream_key = input.streamKey.trim();

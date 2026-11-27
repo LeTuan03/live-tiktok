@@ -91,7 +91,7 @@ def normalise(src: Path, dst: Path) -> float:
 # ----------------------------------------------------------------- end card
 
 
-def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def bold_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for candidate in (settings.ADVIDEO_FONT, *_FONT_CANDIDATES):
         if candidate and Path(candidate).is_file():
             return ImageFont.truetype(candidate, size)
@@ -112,13 +112,18 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font: object, width: int) -> lis
     return lines
 
 
-def screen_price(product: PromoProduct) -> str | None:
-    if product.price is None:
+def price_label(price: float | None, currency: str) -> str | None:
+    """A price as shoppers read it on screen: ``199.000đ``, ``$19.9``, ``12 EUR``."""
+    if price is None:
         return None
-    if product.currency.upper() == "VND":
-        return f"{round(product.price):,}".replace(",", ".") + "đ"
-    amount = f"{product.price:,.2f}".rstrip("0").rstrip(".")
-    return f"${amount}" if product.currency.upper() == "USD" else f"{amount} {product.currency}"
+    if currency.upper() == "VND":
+        return f"{round(price):,}".replace(",", ".") + "đ"
+    amount = f"{price:,.2f}".rstrip("0").rstrip(".")
+    return f"${amount}" if currency.upper() == "USD" else f"{amount} {currency}"
+
+
+def screen_price(product: PromoProduct) -> str | None:
+    return price_label(product.price, product.currency)
 
 
 def end_card_image(product: PromoProduct, photo: Path | None, cta: str) -> Image.Image:
@@ -134,15 +139,15 @@ def end_card_image(product: PromoProduct, photo: Path | None, cta: str) -> Image
         canvas.paste(card, ((WIDTH - card.width) // 2, 170), mask)
     draw = ImageDraw.Draw(canvas)
     y = 840
-    name_font = _font(50)
+    name_font = bold_font(50)
     for line in _wrap(draw, product.name, name_font, 620)[:2]:
         draw.text((WIDTH / 2, y), line, font=name_font, fill="white", anchor="mm")
         y += 62
     price = screen_price(product)
     if price:
-        draw.text((WIDTH / 2, y + 30), price, font=_font(66), fill=(255, 214, 10), anchor="mm")
+        draw.text((WIDTH / 2, y + 30), price, font=bold_font(66), fill=(255, 214, 10), anchor="mm")
         y += 100
-    button_font = _font(46)
+    button_font = bold_font(46)
     text_w = draw.textlength(cta, font=button_font)  # type: ignore[arg-type]
     box = (WIDTH / 2 - text_w / 2 - 44, y + 20, WIDTH / 2 + text_w / 2 + 44, y + 110)
     draw.rounded_rectangle(box, radius=45, fill=(238, 29, 82))

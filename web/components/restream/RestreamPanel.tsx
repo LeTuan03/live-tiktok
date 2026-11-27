@@ -6,11 +6,17 @@
 // OBS with the on-air page stays available as the manual route.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, KeyRound, Settings2 } from "lucide-react";
+import { Check, Copy, KeyRound, Settings2, Zap } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { listOutputs, switchOutput } from "@/lib/restream/api";
-import { describeOutput, enabledCount, serverHost, settling } from "@/lib/restream/logic";
+import {
+  autoCount,
+  describeOutput,
+  enabledCount,
+  serverHost,
+  settling,
+} from "@/lib/restream/logic";
 import { restreamKeys } from "@/lib/restream/queryKeys";
 import type { Output, Outputs } from "@/lib/restream/types";
 import { describeError } from "@/lib/studio/api";
@@ -53,6 +59,7 @@ export function RestreamPanel({ broadcastId, onAir }: { broadcastId: string; onA
   const data = query.data;
   const outputs = data?.outputs ?? [];
   const on = enabledCount(outputs);
+  const autos = autoCount(outputs);
 
   return (
     <Panel
@@ -105,7 +112,9 @@ export function RestreamPanel({ broadcastId, onAir }: { broadcastId: string; onA
           </ul>
           <p className="mt-3 text-xs text-studio-faint">
             {on === 0
-              ? "Bật kênh để SoShop tự đẩy phiên này lên khi bấm Bắt đầu."
+              ? autos > 0 && !onAir
+                ? "Bấm Bắt đầu: kênh có nhãn Tự bật được bật ngay cho phiên này."
+                : "Bật kênh để SoShop tự đẩy phiên này lên khi bấm Bắt đầu."
               : onAir
                 ? "Khi kênh báo Đang phát, vào TikTok LIVE Producer hoặc Shopee Seller Centre bấm Go LIVE (Bắt đầu phát) để người xem thấy."
                 : "Bấm Bắt đầu: SoShop tự đẩy video lên các kênh đã bật. TikTok, Shopee thường cấp key mới cho mỗi phiên, hãy cập nhật key trước khi phát."}
@@ -156,6 +165,14 @@ function OutputRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p className="truncate text-sm font-semibold">{destination.name}</p>
           <span className="text-xs text-studio-faint">{destination.platformLabel}</span>
+          {destination.autoOn && (
+            <span
+              className="inline-flex items-center gap-0.5 text-xs text-live"
+              title="Được bật ngay khi bấm Bắt đầu một phiên live"
+            >
+              <Zap className="h-3 w-3" aria-hidden /> Tự bật
+            </span>
+          )}
         </div>
         <p className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-studio-muted">
           <span className="truncate">{serverHost(destination.serverUrl)}</span>

@@ -29,6 +29,7 @@ const wireDestination = {
   server_url: "rtmp://push.shopee.test/live",
   has_key: true,
   key_hint: "••••9876",
+  auto_on: true,
   created_at: "2026-11-21T00:00:00Z",
   updated_at: "2026-11-21T00:00:00Z",
 };
@@ -82,6 +83,7 @@ describe("adapters", () => {
         serverUrl: "rtmp://push.shopee.test/live",
         hasKey: true,
         keyHint: "••••9876",
+        autoOn: true,
         createdAt: "2026-11-21T00:00:00Z",
         updatedAt: "2026-11-21T00:00:00Z",
       },
@@ -116,7 +118,23 @@ describe("destinations", () => {
       name: "Shopee shop",
       server_url: "rtmp://push.shopee.test/live",
       stream_key: "key-1",
+      auto_on: false, // switched per session unless the form asks
     });
+  });
+
+  it("creates and edits a channel that switches itself on at Start", async () => {
+    const spy = spyFetch(json(201, wireDestination), json(200, wireDestination));
+    const made = await createDestination({
+      platform: "tiktok",
+      name: "TikTok",
+      serverUrl: "rtmp://push-rtmp.tiktokcdn.com/game/",
+      streamKey: "k",
+      autoOn: true,
+    });
+    expect(made.autoOn).toBe(true);
+    expect((await sent(spy, 0)).body).toMatchObject({ auto_on: true });
+    await updateDestination("d1", { autoOn: false });
+    expect((await sent(spy, 1)).body).toEqual({ auto_on: false });
   });
 
   it("updates only what changed and leaves the key out to keep it", async () => {

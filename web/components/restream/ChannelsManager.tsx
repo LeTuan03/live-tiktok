@@ -4,9 +4,11 @@
 // Each one is the server URL and stream key a platform hands out (TikTok
 // LIVE Producer, Shopee Seller Centre, YouTube Studio). Keys go to the
 // server and never come back; the list shows their last characters only.
+// A channel marked "Tự bật" is switched on by the server for whichever
+// session Start was pressed on last, so going live takes no other clicks.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, KeyRound, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import {
   createDestination,
@@ -37,7 +39,8 @@ export function ChannelsManager() {
           <p className="mt-1 text-sm text-studio-muted">
             Nơi SoShop đẩy hình của phiên livestream lên: TikTok Live, Shopee Live, YouTube Live
             hoặc bất kỳ máy chủ RTMP nào. Mỗi kênh là một cặp Server URL và Stream key do nền tảng
-            cấp. Bật kênh cho từng phiên trong phòng điều khiển.
+            cấp. Kênh có nhãn <strong className="text-studio-fg">Tự bật</strong> được bật ngay khi
+            bấm Bắt đầu một phiên live; kênh khác thì bật cho từng phiên trong phòng điều khiển.
           </p>
         </header>
 
@@ -113,6 +116,11 @@ function DestinationRow({ destination }: { destination: Destination }) {
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate font-semibold">{destination.name}</p>
             <Badge>{destination.platformLabel}</Badge>
+            {destination.autoOn && (
+              <Badge tone="live">
+                <Zap className="h-3 w-3" aria-hidden /> Tự bật
+              </Badge>
+            )}
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-studio-muted">
             <span className="truncate">{serverHost(destination.serverUrl)}</span>
@@ -173,6 +181,7 @@ function DestinationForm({
   const [name, setName] = useState(existing?.name ?? guide.label);
   const [serverUrl, setServerUrl] = useState(existing?.serverUrl ?? guide.defaultServerUrl);
   const [streamKey, setStreamKey] = useState("");
+  const [autoOn, setAutoOn] = useState(existing?.autoOn ?? true);
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -184,8 +193,9 @@ function DestinationForm({
             serverUrl,
             // Blank keeps the stored key: it is never sent back to the browser.
             streamKey: streamKey.trim() ? streamKey : undefined,
+            autoOn,
           })
-        : createDestination({ platform, name, serverUrl, streamKey }),
+        : createDestination({ platform, name, serverUrl, streamKey, autoOn }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: restreamKeys.destinations });
       void qc.invalidateQueries({ queryKey: ["restream", "outputs"] });
@@ -258,6 +268,24 @@ function DestinationForm({
             </Button>
           </div>
         </Field>
+        <label className="flex items-start gap-2.5 rounded-lg border border-studio-border bg-studio-bg p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={autoOn}
+            onChange={(e) => setAutoOn(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-live"
+            data-testid="Channels.autoOn"
+          />
+          <span>
+            <span className="font-medium text-studio-fg">
+              Tự phát lên kênh này khi bấm Bắt đầu phiên live
+            </span>
+            <span className="mt-0.5 block text-xs text-studio-faint">
+              Phiên vừa bấm Bắt đầu được bật kênh này, phiên khác đang phát tự tắt (một key chỉ nhận
+              một luồng). Vẫn tắt, bật tay được trong phòng điều khiển.
+            </span>
+          </span>
+        </label>
         <ErrorNote message={error} />
         <div className="flex gap-2">
           <Button type="submit" variant="primary" busy={save.isPending} data-testid="Channels.save">

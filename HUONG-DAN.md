@@ -28,7 +28,7 @@ Lần sau chỉ cần bấm biểu tượng **SoShop** trên Desktop hoặc tron
 |---|---|
 | **Mở Studio** | Mở trang quản lý sản phẩm, video và phiên live trong trình duyệt |
 | **Kết nối Google Flow** | Hướng dẫn từng bước cài tiện ích Chrome để tạo video bằng Flow |
-| **Cài đặt** | Đổi Groq key, giọng đọc, key ElevenLabs hoặc LemonSlice |
+| **Cài đặt** | Đổi Groq key, giọng đọc, key ElevenLabs hoặc LemonSlice, Server URL và Stream key TikTok LIVE |
 | **Sao lưu dữ liệu** | Xuất toàn bộ sản phẩm, video, phiên live ra một file `.zip` |
 | **Khôi phục dữ liệu** | Nạp lại dữ liệu từ file `.zip` đó (ví dụ trên máy mới) |
 | **Nhật ký** | Mở thư mục nhật ký khi cần báo lỗi |
@@ -39,7 +39,34 @@ Trong Studio:
 
 - **Sản phẩm** (`/studio/products`): thêm sản phẩm, ảnh, giá, điểm nổi bật.
 - **Video** (`/studio/videos`): tạo video quảng cáo cho từng sản phẩm bằng Google Flow.
-- **Phiên live** (`/studio/live`): xếp các video thành playlist, bấm phát, tạm dừng, chuyển sản phẩm. Màn hình phát dọc 9:16 nằm ở `/onair/<mã phiên>`, đưa vào OBS (Browser Source) để phát lên TikTok hoặc YouTube.
+- **Phiên live** (`/studio/live`): xếp các video thành playlist, bấm phát, tạm dừng, chuyển sản phẩm. SoShop tự đẩy phiên đang phát lên TikTok, Shopee hoặc YouTube (xem mục dưới). Vẫn có thể dùng OBS: màn hình phát dọc 9:16 nằm ở `/onair/<mã phiên>`, đưa vào OBS dưới dạng Browser Source.
+- **Kênh phát** (`/studio/channels`): thêm Server URL và Stream key của từng nền tảng để bật theo từng phiên.
+
+## Phát lên TikTok LIVE
+
+Tài khoản TikTok phải được cấp stream key (thường cần từ 1.000 người theo dõi trở lên, tùy khu vực).
+
+1. Trên máy tính, mở [TikTok LIVE Producer](https://livecenter.tiktok.com/producer), tạo phiên LIVE phát bằng phần mềm. Sao chép **Server URL** và **Stream key**.
+2. Trong Studio mở trang **Kênh phát**, bấm **TikTok Live**, dán **Server URL** và **Stream key**, giữ ô **Tự phát lên kênh này khi bấm Bắt đầu phiên live**, bấm **Lưu kênh**. Kênh hiện nhãn **Tự bật**. Không cần khởi động lại.
+3. Mở phiên live và bấm **Bắt đầu livestream**. Ô **Phát lên TikTok, Shopee** tự bật kênh TikTok. Chờ kênh báo **Đang phát**.
+4. Quay lại TikTok LIVE Producer, khi đã thấy hình thì bấm **Go LIVE**.
+
+Cách khác: dán Server URL và key trong **Cài đặt** của cửa sổ SoShop (mục **TikTok LIVE**). SoShop tạo kênh **TikTok Live (cấu hình)** với cùng chức năng.
+
+Người xem trên TikTok sẽ thấy:
+
+- **Thẻ sản phẩm** nằm dưới thanh tiêu đề của TikTok: ảnh, tên, giá và nút **Giỏ hàng số N**. N là số thứ tự của sản phẩm trong playlist (số hiện bên trái mỗi video ở trang phiên live). Hãy thêm sản phẩm vào giỏ hàng TikTok theo đúng thứ tự đó để số khớp nhau.
+- **Âm lượng đều**: SoShop đo độ to của từng video và chỉnh cho bằng nhau, không còn video to video nhỏ.
+- **Nhạc nền** (không bắt buộc): mở **Cài đặt**, **Mở file cài đặt nâng cao**, điền `RESTREAM_MUSIC_FILE=` đường dẫn tới file nhạc bạn có quyền dùng (ví dụ `C:\Users\ten\Music\nhac-nen.mp3`), lưu file rồi bấm **Lưu** trong Cài đặt. Nhạc phát nhỏ bên dưới giọng nói, và vẫn chạy khi tạm dừng hay khi video không có tiếng.
+- Muốn đưa thẻ xuống ngay trên phần bình luận thì đặt `RESTREAM_OVERLAY=middle`, muốn tắt thẻ thì đặt `off`.
+
+Lưu ý:
+
+- TikTok thường đổi key sau mỗi phiên LIVE. Trước mỗi lần live, vào trang **Kênh phát**, bấm **Sửa, đổi key** ở kênh TikTok và dán key mới: có tác dụng ngay, không cần khởi động lại. Kênh báo "Máy chủ ngắt luồng phát" thường là do key đã hết hạn.
+- Một key chỉ nhận một luồng. Bấm **Bắt đầu** ở phiên khác thì TikTok chuyển sang phiên đó, phiên cũ tự tắt kênh TikTok.
+- Muốn tạm không phát lên TikTok, tắt kênh trong ô **Phát lên TikTok, Shopee** của phiên đó. Lựa chọn này được giữ tới lần bấm **Bắt đầu** sau.
+- Shopee Live, YouTube Live cũng làm như vậy ở trang **Kênh phát**. Nhiều kênh cùng có nhãn **Tự bật** thì bấm Bắt đầu là phát lên tất cả.
+- Bản Docker và bản mã nguồn cũng cấu hình trên trang **Kênh phát** như trên. Không cần điền gì vào file cấu hình. Chỉ khi không dùng Studio mới bỏ dấu `#` trước `TIKTOK_SERVER_URL`, `TIKTOK_STREAM_KEY` trong `soshop.env` (bản Docker) hoặc `server/.env` (bản mã nguồn), điền giá trị rồi khởi động lại.
 
 ## Kết nối Google Flow (mỗi máy làm một lần)
 

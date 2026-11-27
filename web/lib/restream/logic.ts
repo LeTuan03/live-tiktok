@@ -81,6 +81,11 @@ export function enabledCount(outputs: Output[]): number {
 }
 
 /** Whether the push states may still change on their own (worth polling). */
+/** Destinations the server switches on by itself when Start is pressed. */
+export function autoCount(outputs: Output[]): number {
+  return outputs.filter((o) => o.destination.autoOn).length;
+}
+
 export function settling(outputs: Output[], onAir: boolean): boolean {
   return onAir || outputs.some((o) => o.state !== "off");
 }

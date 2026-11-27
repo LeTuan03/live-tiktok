@@ -13,6 +13,9 @@ namespace SoShop
         private readonly ComboBox voice;
         private readonly TextBox eleven;
         private readonly TextBox lemon;
+        private readonly TextBox tiktokUrl;
+        private readonly TextBox tiktokKey;
+        private readonly CheckBox tiktokAuto;
 
         public SettingsForm(bool firstRun)
         {
@@ -71,6 +74,29 @@ namespace SoShop
             lemon = Box(env.Get("LEMONSLICE_API_KEY"));
             layout.Controls.Add(lemon);
 
+            layout.Controls.Add(Caption("TikTok LIVE (không bắt buộc)"));
+            layout.Controls.Add(Text_(
+                "Dễ nhất là thêm kênh TikTok ngay trong Studio, trang Kênh phát (đổi key ở đó có tác " +
+                "dụng ngay). Hoặc dán Server URL và Stream key lấy trong TikTok LIVE Producer vào đây.",
+                Brand.Muted, 0, 4));
+            tiktokUrl = Box(env.Get("TIKTOK_SERVER_URL"));
+            layout.Controls.Add(Hint("Server URL (rtmp://...)"));
+            layout.Controls.Add(tiktokUrl);
+            tiktokKey = Box(env.Get("TIKTOK_STREAM_KEY"));
+            tiktokKey.UseSystemPasswordChar = true;
+            layout.Controls.Add(Hint("Stream key"));
+            layout.Controls.Add(tiktokKey);
+            tiktokAuto = new CheckBox
+            {
+                Text = "Bấm Bắt đầu phiên live là tự phát lên TikTok",
+                AutoSize = true,
+                Checked = !string.Equals(env.Get("TIKTOK_AUTO_ON"), "false", StringComparison.OrdinalIgnoreCase),
+                ForeColor = Brand.Ink,
+                Margin = new Padding(0, 6, 0, 2),
+            };
+            layout.Controls.Add(tiktokAuto);
+            layout.Controls.Add(Link("Mở TikTok LIVE Producer", "https://livecenter.tiktok.com/producer"));
+
             var advanced = Link("Mở file cài đặt nâng cao (soshop.env)", null);
             advanced.LinkClicked += (s, e) => Process.Start("notepad.exe", Proc.Quote(AppPaths.EnvFile))?.Dispose();
             layout.Controls.Add(advanced);
@@ -108,14 +134,62 @@ namespace SoShop
                     "Cài đặt", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (answer != DialogResult.Yes) return;
             }
-            env.Set("GROQ_API_KEY", key);
-            env.Set("EDGE_TTS_VOICE", voice.Text.Trim().Length > 0 ? voice.Text.Trim() : "google-vi");
-            env.Set("ELEVEN_API_KEY", eleven.Text.Trim());
-            env.Set("LEMONSLICE_API_KEY", lemon.Text.Trim());
-            env.Save();
+            var url = tiktokUrl.Text.Trim();
+            var streamKey = tiktokKey.Text.Trim();
+            if (!CheckTikTok(url, streamKey)) return;
+            // Read the file again: it may have been edited in Notepad (the
+            // advanced-settings link) while this dialog was open.
+            var latest = new EnvFile(AppPaths.EnvFile);
+            latest.Set("GROQ_API_KEY", key);
+            latest.Set("EDGE_TTS_VOICE", voice.Text.Trim().Length > 0 ? voice.Text.Trim() : "google-vi");
+            latest.Set("ELEVEN_API_KEY", eleven.Text.Trim());
+            latest.Set("LEMONSLICE_API_KEY", lemon.Text.Trim());
+            // TikTok is set up in the Studio (Kênh phát) by default: only write
+            // these when used here, so a fresh soshop.env gets no empty lines.
+            if (url.Length > 0 || latest.Has("TIKTOK_SERVER_URL"))
+            {
+                latest.Set("TIKTOK_SERVER_URL", url);
+                latest.Set("TIKTOK_STREAM_KEY", streamKey);
+                latest.Set("TIKTOK_AUTO_ON", tiktokAuto.Checked ? "true" : "false");
+            }
+            latest.Save();
             DialogResult = DialogResult.OK;
             Close();
         }
+
+        /// <summary>The same rules the server applies (soshop.restream.platforms), said up front.</summary>
+        private bool CheckTikTok(string url, string streamKey)
+        {
+            string problem = null;
+            if (url.Length == 0 && streamKey.Length > 0)
+                problem = "Đã có Stream key nhưng thiếu Server URL của TikTok.";
+            else if (url.Length > 0 && !url.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase)
+                     && !url.StartsWith("rtmps://", StringComparison.OrdinalIgnoreCase))
+                problem = "Server URL của TikTok phải bắt đầu bằng rtmp:// hoặc rtmps://.";
+            else if (url.IndexOf(' ') >= 0 || streamKey.IndexOf(' ') >= 0)
+                problem = "Server URL và Stream key không được chứa khoảng trắng.";
+            if (problem != null)
+            {
+                MessageBox.Show(this, problem, "Cài đặt", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+            if (url.Length > 0 && streamKey.Length == 0)
+            {
+                var answer = MessageBox.Show(this,
+                    "Chưa có Stream key nên TikTok sẽ chưa nhận được hình. Vẫn lưu?",
+                    "Cài đặt", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                return answer == DialogResult.Yes;
+            }
+            return true;
+        }
+
+        private static Label Hint(string text) => new Label
+        {
+            Text = text,
+            AutoSize = true,
+            ForeColor = Brand.Muted,
+            Margin = new Padding(0, 4, 0, 2),
+        };
 
         private static Label Caption(string text) => new Label
         {

@@ -22,6 +22,17 @@ namespace SoShop
             lines = File.Exists(path) ? File.ReadAllLines(path, Encoding.UTF8).ToList() : new List<string>();
         }
 
+        /// <summary>Whether the file sets <paramref name="key"/> at all (a commented-out line does not count).</summary>
+        public bool Has(string key)
+        {
+            foreach (var line in lines)
+            {
+                var m = Entry.Match(line);
+                if (m.Success && m.Groups[1].Value == key) return true;
+            }
+            return false;
+        }
+
         public string Get(string key)
         {
             foreach (var line in lines)

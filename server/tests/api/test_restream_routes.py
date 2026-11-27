@@ -76,8 +76,12 @@ async def test_destinations_never_give_their_key_back(client: httpx.AsyncClient)
         assert listed.status_code == 200 and KEY not in listed.text
         assert any(d["id"] == did for d in listed.json()["destinations"])
 
+        assert dest["auto_on"] is False  # switched per session unless asked
+        auto = await client.patch(f"/stream-destinations/{did}", json={"auto_on": True})
+        assert auto.status_code == 200 and auto.json()["auto_on"] is True
         renamed = await client.patch(f"/stream-destinations/{did}", json={"name": "Kênh 2"})
         assert renamed.json()["name"] == "Kênh 2" and renamed.json()["has_key"]  # key kept
+        assert renamed.json()["auto_on"] is True  # left out: kept
         rekeyed = await client.patch(
             f"/stream-destinations/{did}", json={"stream_key": "new-session-key-9876"}
         )
@@ -143,3 +147,29 @@ async def test_outputs_switch_a_destination_per_broadcast(client: httpx.AsyncCli
     finally:
         await client.delete(f"/stream-destinations/{did}")
         await client.delete(f"/broadcasts/{bid}")
+
+
+async def test_a_destination_can_be_created_auto_on(client: httpx.AsyncClient) -> None:
+    made = await client.post(
+        "/stream-destinations",
+        json={
+            "platform": "tiktok",
+            "name": "pytest TikTok tự bật",
+            "server_url": "rtmp://push-rtmp.tiktokcdn.com/game/",
+            "stream_key": KEY,
+            "auto_on": True,
+        },
+    )
+    assert made.status_code == 201, made.text
+    did = made.json()["id"]
+    try:
+        assert made.json()["auto_on"] is True
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            assert did in await restream.auto_destinations(conn)
+        off = await client.patch(f"/stream-destinations/{did}", json={"auto_on": False})
+        assert off.json()["auto_on"] is False
+        async with pool.acquire() as conn:
+            assert did not in await restream.auto_destinations(conn)
+    finally:
+        await client.delete(f"/stream-destinations/{did}")
