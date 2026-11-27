@@ -657,6 +657,10 @@ export type CustomHostResponse = {
  */
 export type Destination = {
     /**
+     * Auto On
+     */
+    auto_on: boolean;
+    /**
      * Created At
      */
     created_at: string;
@@ -699,6 +703,10 @@ export type Destination = {
  */
 export type DestinationCreate = {
     /**
+     * Auto On
+     */
+    auto_on?: boolean;
+    /**
      * Name
      */
     name: string;
@@ -720,6 +728,10 @@ export type DestinationCreate = {
  * DestinationPatch
  */
 export type DestinationPatch = {
+    /**
+     * Auto On
+     */
+    auto_on?: boolean | null;
     /**
      * Name
      */

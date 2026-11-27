@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { describeOutput, keyProblem, serverHost, serverUrlProblem, settling } from "./logic";
+import {
+  autoCount,
+  describeOutput,
+  keyProblem,
+  serverHost,
+  serverUrlProblem,
+  settling,
+} from "./logic";
 import type { Destination, Output } from "./types";
 
 function destination(over: Partial<Destination> = {}): Destination {
@@ -11,6 +18,7 @@ function destination(over: Partial<Destination> = {}): Destination {
     serverUrl: "rtmp://push-rtmp.tiktokcdn.com/game/",
     hasKey: true,
     keyHint: "••••abcd",
+    autoOn: false,
     createdAt: "2026-11-21T00:00:00Z",
     updatedAt: "2026-11-21T00:00:00Z",
     ...over,
@@ -90,6 +98,13 @@ describe("describeOutput", () => {
       detail: "Máy chủ ngắt luồng phát.",
     });
     expect(describeOutput(output({ state: "connecting" }), true).tone).toBe("amber");
+  });
+});
+
+describe("autoCount", () => {
+  it("counts the channels switched on by themselves at Start", () => {
+    expect(autoCount([])).toBe(0);
+    expect(autoCount([output(), output({}, { id: "d2", autoOn: true })])).toBe(1);
   });
 });
 

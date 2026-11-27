@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from soshop.restream import encoder
-from soshop.restream.encoder import Profile
+from soshop.restream.encoder import PLAIN, Dressing, Profile
 from soshop.restream.plan import Cue, Failure, Feed
 from soshop.restream.platforms import OutputStatus, describe_failure, redact
 
@@ -502,7 +502,7 @@ class Relay:
 
     # ----------------------------------------------------------- the encoder
 
-    def start(self, cue: Cue, source: str, has_audio: bool) -> None:
+    def start(self, cue: Cue, source: str, has_audio: bool, dressing: Dressing = PLAIN) -> None:
         """Drop what the feed holds and encode ``cue`` from now. Blocking."""
         still = self._still(cue, source) if cue.kind == "hold" else None
         with self._cond:
@@ -517,7 +517,7 @@ class Relay:
                 ts = max(ts, self._anchor[1] + (self._mono() - self._anchor[0]))
         for old in dropped:
             old.close()
-        fresh = self._segment(cue, source, has_audio, still, ts)
+        fresh = self._segment(cue, source, has_audio, still, ts, dressing)
         with self._cond:
             if fresh is None or self._closed or self._current is not None:
                 if fresh is not None:
@@ -526,14 +526,14 @@ class Relay:
             self._current = fresh
             self._cond.notify_all()
 
-    def queue(self, cue: Cue, source: str, has_audio: bool) -> None:
+    def queue(self, cue: Cue, source: str, has_audio: bool, dressing: Dressing = PLAIN) -> None:
         """Encode ``cue`` to follow the current stretch without a gap. Blocking."""
         with self._cond:
             current = self._current
             if self._closed or current is None or self._queued is not None:
                 return
             ts = current.ts_offset_s + current.length_s + SPLICE_GAP_S
-        seg = self._segment(cue, source, has_audio, None, ts)
+        seg = self._segment(cue, source, has_audio, None, ts, dressing)
         with self._cond:
             if seg is None:
                 return
@@ -543,10 +543,18 @@ class Relay:
             self._queued = seg
 
     def _segment(
-        self, cue: Cue, source: str, has_audio: bool, still: str | None, ts: float
+        self,
+        cue: Cue,
+        source: str,
+        has_audio: bool,
+        still: str | None,
+        ts: float,
+        dressing: Dressing,
     ) -> Segment | None:
         if cue.kind == "hold":
-            argv = encoder.hold_args(self._ffmpeg, still, ts_offset_s=ts, profile=self._profile)
+            argv = encoder.hold_args(
+                self._ffmpeg, still, ts_offset_s=ts, profile=self._profile, dressing=dressing
+            )
         else:
             argv = encoder.play_args(
                 self._ffmpeg,
@@ -557,6 +565,7 @@ class Relay:
                 has_audio=has_audio,
                 ts_offset_s=ts,
                 profile=self._profile,
+                dressing=dressing,
             )
         try:
             return Segment(

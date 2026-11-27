@@ -7,6 +7,12 @@ be pushing (switched on, on a broadcast that is live or paused), keeps one
 :func:`~soshop.restream.plan.decide` to it, and writes each output's state to
 ``broadcast_outputs`` when it changes, for the control room to show.
 
+Destinations marked ``auto_on`` (on the studio's "Kênh phát" page) are handed
+to the broadcast started last (:func:`soshop.services.restream.take_over`), so
+pressing Start in the control room is all it takes to be live on TikTok. With
+``TIKTOK_SERVER_URL`` set, startup also writes a TikTok destination from the
+settings, marked auto per ``TIKTOK_AUTO_ON``.
+
 A restart loses only a few seconds of stream: the next process reads the same
 rows and picks the show up at its derived position. Run it in one API process
 only, since two would push to the same stream keys.
@@ -16,17 +22,20 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import shutil
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from uuid import uuid4
 
 import asyncpg
 
 from soshop.promo.assemble import probe
 from soshop.restream import plan
+from soshop.restream.dresser import Dresser
 from soshop.restream.encoder import Profile
 from soshop.restream.platforms import OutputStatus
 from soshop.restream.relay import Output, Relay
@@ -61,6 +70,33 @@ def _resolve(url: str) -> _Media | None:
     return _Media(str(path), has_audio) if duration > 0 else None
 
 
+CONFIG_MARKER = Path("restream") / "tiktok-config.sha256"
+"""Under ``DATA_DIR``: a hash of the TikTok settings last written to the database."""
+
+
+def config_stamp(server_url: str, stream_key: str) -> str:
+    """A hash of the TikTok settings (the key itself is not written to disk here)."""
+    return hashlib.sha256(f"{server_url}\n{stream_key}".encode()).hexdigest()
+
+
+def config_changed(marker: Path, stamp: str) -> bool:
+    """Whether the settings differ from the ones applied last time.
+
+    TikTok issues a new key per LIVE, pasted on /studio/channels without a
+    restart. Re-applying unchanged settings at every start would put the
+    old key back, so the settings only win when they themselves changed.
+    """
+    try:
+        return marker.read_text(encoding="ascii").strip() != stamp
+    except OSError:
+        return True
+
+
+def remember_config(marker: Path, stamp: str) -> None:
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(stamp, encoding="ascii")
+
+
 class Restreamer:
     def __init__(self, config: Settings) -> None:
         self._profile = Profile.from_settings(config)
@@ -69,6 +105,11 @@ class Restreamer:
         self._written: dict[Key, OutputStatus] = {}
         self._media: dict[str, _Media] = {}
         self._closing: set[asyncio.Task[None]] = set()
+        self._dresser = Dresser(config, self._ffmpeg or "ffmpeg", self._profile)
+        self._tiktok = (config.TIKTOK_SERVER_URL.strip(), config.TIKTOK_STREAM_KEY.strip())
+        self._tiktok_auto = config.TIKTOK_AUTO_ON
+        self._handled: set[store.Start] = set()
+        """Starts already given the auto destinations, or found on air with a switch."""
         self.problem = None if self._ffmpeg else "Chưa cài ffmpeg trên server (cần có trong PATH)."
 
     async def run(self) -> None:
@@ -79,6 +120,9 @@ class Restreamer:
             # Scratch space (paused frames) left by a previous process.
             shutil.rmtree(storage.work_dir("restream"), ignore_errors=True)
             await self._with_conn(store.reset_states)
+            await self._with_conn(self._sync_config)
+            await self._with_conn(self._seed_handled)
+            await asyncio.to_thread(self._dresser.prepare)
             while True:
                 try:
                     await self._pass()
@@ -97,9 +141,58 @@ class Restreamer:
         async with pool.acquire() as conn:
             await fn(conn)
 
+    async def _sync_config(self, conn: asyncpg.Connection) -> None:
+        """Bring the TikTok destination from the settings into the database."""
+        server_url, stream_key = self._tiktok
+        if not server_url:
+            if stream_key:
+                logger.warning("TIKTOK_STREAM_KEY is set without TIKTOK_SERVER_URL; ignored")
+            return
+        marker = storage.data_root() / CONFIG_MARKER
+        stamp = config_stamp(server_url, stream_key)
+        changed = await asyncio.to_thread(config_changed, marker, stamp)
+        try:
+            await store.sync_config_destination(
+                conn,
+                server_url=server_url,
+                stream_key=stream_key,
+                auto_on=self._tiktok_auto,
+                overwrite=changed,
+            )
+        except store.RestreamError as exc:
+            logger.warning("TikTok settings not used: %s", exc.message)
+            return
+        if changed:
+            await asyncio.to_thread(remember_config, marker, stamp)
+            logger.info("TikTok settings applied to the destination")
+        else:
+            logger.info("TikTok settings unchanged; keeping what /studio/channels holds")
+        if not stream_key:
+            logger.warning("TIKTOK_STREAM_KEY is empty; TikTok will report a missing key")
+
+    async def _seed_handled(self, conn: asyncpg.Connection) -> None:
+        """Broadcasts already on air with a switch keep their switches across a restart."""
+        self._handled = await store.switched_starts(conn)
+
+    async def _hand_over(self, conn: asyncpg.Connection) -> None:
+        """Give every auto destination to a broadcast that was just started.
+
+        Once per press of Start: switching one off or on by hand afterwards is
+        left alone until Start is pressed again, on this broadcast or another.
+        A destination marked auto while a show is on air waits for the next Start.
+        """
+        latest = await store.latest_start(conn)
+        if latest is None or latest in self._handled:
+            return
+        self._handled.add(latest)
+        for did in await store.auto_destinations(conn):
+            if await store.take_over(conn, latest[0], did):
+                logger.info("destination %s handed to broadcast %s", did, latest[0])
+
     async def _pass(self) -> None:
         pool = await get_pool()
         async with pool.acquire() as conn:
+            await self._hand_over(conn)
             groups: dict[str, list[store.Wanted]] = defaultdict(list)
             for wanted in await store.wanted_outputs(conn):
                 groups[wanted.broadcast_id].append(wanted)
@@ -150,8 +243,11 @@ class Restreamer:
         if media is None:
             relay.note_failure(cue, f'Không tìm thấy tệp video "{cue.source.title}".')
             return
+        dressing = await asyncio.to_thread(
+            self._dresser.dress, cue.source.card, media.path, media.has_audio
+        )
         action = relay.start if step.restart is not None else relay.queue
-        await asyncio.to_thread(action, cue, media.path, media.has_audio)
+        await asyncio.to_thread(action, cue, media.path, media.has_audio, dressing)
 
     async def _media_for(self, url: str) -> _Media | None:
         found = self._media.get(url)

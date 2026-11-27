@@ -135,6 +135,31 @@ class Settings(BaseSettings):
     RESTREAM_X264_PRESET: Literal[
         "ultrafast", "superfast", "veryfast", "faster", "fast", "medium"
     ] = "veryfast"
+    # Product card burned into the pushed stream while a product video plays:
+    # photo, name, price and "Giỏ hàng số N" (N is the product's place in the
+    # playlist, so add products to the platform's basket in the same order).
+    # "top" sits under TikTok's LIVE header, "middle" just above its comments.
+    RESTREAM_OVERLAY: Literal["top", "middle", "off"] = "top"
+    # Bring every video to the same loudness (measured once per file) so one
+    # clip is not much louder than the next. -14 LUFS is what TikTok and
+    # YouTube play back at.
+    RESTREAM_NORMALIZE_AUDIO: bool = True
+    RESTREAM_AUDIO_LUFS: float = Field(default=-14.0, ge=-30.0, le=-8.0)
+    # Optional music bed under the whole stream, paused frames included, so
+    # the stream never goes silent. A path to an audio file you may use; it
+    # loops. Volume is linear: 0.15 sits well under speech.
+    RESTREAM_MUSIC_FILE: str = ""
+    RESTREAM_MUSIC_VOLUME: float = Field(default=0.15, ge=0.0, le=1.0)
+    # TikTok LIVE from config, no clicks in the studio. With TIKTOK_SERVER_URL
+    # set, the restreamer writes one "TikTok Live" destination from these
+    # values at startup whenever they changed since the last start, and with
+    # TIKTOK_AUTO_ON hands it to each broadcast as Start is pressed. Both come
+    # from TikTok LIVE Producer (livecenter.tiktok.com/producer), which usually
+    # issues a new key per LIVE: paste it on /studio/channels (kept across
+    # restarts while these values stay the same) or change it here and restart.
+    TIKTOK_SERVER_URL: str = ""
+    TIKTOK_STREAM_KEY: str = ""
+    TIKTOK_AUTO_ON: bool = True
 
     # OpenTelemetry tracing — disabled by default. When `OTEL_ENABLED` is
     # true the FastAPI auto-instrumentor is installed; if a non-empty

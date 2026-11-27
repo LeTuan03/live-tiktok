@@ -7,6 +7,8 @@ Keys go in and never come back out; responses carry ``key_hint`` instead.
 ``/broadcasts/{id}/outputs`` lists every destination for one broadcast with
 its switch and push state. While the broadcast is live or paused, the API
 process pushes it to every destination switched on (``soshop.restream``).
+A destination with ``auto_on`` is switched on by itself for the session whose
+Start was pressed last.
 """
 
 from __future__ import annotations
@@ -35,6 +37,8 @@ class DestinationCreate(StrictModel):
     name: str = Field(min_length=1, max_length=80)
     server_url: str = Field(min_length=1, max_length=500)
     stream_key: str = Field(default="", max_length=500)
+    auto_on: bool = False
+    """Switch it on by itself for each session as Start is pressed."""
 
 
 class DestinationPatch(StrictModel):
@@ -42,6 +46,7 @@ class DestinationPatch(StrictModel):
     server_url: str | None = Field(default=None, min_length=1, max_length=500)
     stream_key: str | None = Field(default=None, max_length=500)
     """Leave out to keep the stored key; an empty string removes it."""
+    auto_on: bool | None = None
 
 
 class OutputsResponse(StrictModel):

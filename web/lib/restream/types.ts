@@ -16,6 +16,8 @@ export interface Destination {
   hasKey: boolean;
   /** The stream key's last characters. The key itself never reaches the browser. */
   keyHint: string;
+  /** Switched on by itself for the session whose Start was pressed last. */
+  autoOn: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -43,4 +45,5 @@ export interface DestinationInput {
   serverUrl: string;
   /** Left out on an update to keep the stored key; `""` removes it. */
   streamKey?: string;
+  autoOn?: boolean;
 }

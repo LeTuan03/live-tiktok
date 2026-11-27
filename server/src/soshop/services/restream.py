@@ -7,6 +7,10 @@ the restreamer writes back (:mod:`soshop.restream.runner`).
 
 Stream keys go from here to the restreamer only. The shapes the API returns
 carry a masked hint (:func:`soshop.restream.platforms.mask_key`), never a key.
+
+A destination marked ``auto_on`` (in the studio, or ``TIKTOK_AUTO_ON`` for the
+one the settings describe, :func:`sync_config_destination`) is handed to each
+broadcast as it is started (:func:`take_over`).
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 import asyncpg
 from pydantic import BaseModel
@@ -51,6 +56,8 @@ class Destination(BaseModel):
     has_key: bool
     key_hint: str
     """The key's last characters, for telling keys apart. Never the key."""
+    auto_on: bool
+    """Switched on by itself for the livestream session started last."""
     created_at: datetime
     updated_at: datetime
 
@@ -77,7 +84,7 @@ class Wanted:
     problem: str | None
 
 
-_DEST_COLUMNS = "id, platform, name, server_url, stream_key, created_at, updated_at"
+_DEST_COLUMNS = "id, platform, name, server_url, stream_key, auto_on, created_at, updated_at"
 _NOT_FOUND = "Không tìm thấy kênh phát."
 
 
@@ -98,6 +105,7 @@ def _destination(row: asyncpg.Record) -> Destination:
         server_url=row["server_url"],
         has_key=bool(key),
         key_hint=mask_key(key),
+        auto_on=row["auto_on"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -134,18 +142,19 @@ async def create_destination(conn: asyncpg.Connection, fields: dict[str, Any]) -
     values = _checked(fields)
     row = await conn.fetchrow(
         f"""
-        INSERT INTO stream_destinations (platform, name, server_url, stream_key)
-        VALUES ($1, $2, $3, $4) RETURNING {_DEST_COLUMNS}
+        INSERT INTO stream_destinations (platform, name, server_url, stream_key, auto_on)
+        VALUES ($1, $2, $3, $4, $5) RETURNING {_DEST_COLUMNS}
         """,  # noqa: S608 - constant columns
         values["platform"],
         values["name"],
         values["server_url"],
         values.get("stream_key") or "",
+        bool(values.get("auto_on", False)),
     )
     return _destination(row)
 
 
-_EDITABLE = ("name", "server_url", "stream_key")
+_EDITABLE = ("name", "server_url", "stream_key", "auto_on")
 
 
 async def update_destination(
@@ -165,6 +174,133 @@ async def update_destination(
     if row is None:
         raise RestreamError(_NOT_FOUND, status_code=404)
     return _destination(row)
+
+
+CONFIG_TIKTOK_ID = str(uuid5(NAMESPACE_URL, "soshop:stream-destination:config-tiktok"))
+"""The TikTok destination ``TIKTOK_SERVER_URL`` / ``TIKTOK_STREAM_KEY`` describe.
+
+A fixed id, so every startup updates the same row instead of adding one.
+"""
+CONFIG_TIKTOK_NAME = "TikTok Live (cấu hình)"
+
+
+async def sync_config_destination(
+    conn: asyncpg.Connection,
+    *,
+    server_url: str,
+    stream_key: str,
+    auto_on: bool = True,
+    destination_id: str = CONFIG_TIKTOK_ID,
+    overwrite: bool = True,
+) -> str:
+    """Create or refresh the TikTok destination the settings describe; its id.
+
+    With ``overwrite`` the settings win over a URL or key edited in the
+    studio; without it an existing row is left as it is (only a missing one
+    is created). The name is only set on creation, so a rename sticks. A URL
+    or key that cannot be used raises :class:`RestreamError`.
+    """
+    values = _checked({"server_url": server_url, "stream_key": stream_key})
+    on_conflict = (
+        """
+        DO UPDATE
+           SET server_url = EXCLUDED.server_url,
+               stream_key = EXCLUDED.stream_key,
+               auto_on = EXCLUDED.auto_on,
+               updated_at = NOW()
+         WHERE stream_destinations.server_url <> EXCLUDED.server_url
+            OR stream_destinations.stream_key <> EXCLUDED.stream_key
+            OR stream_destinations.auto_on <> EXCLUDED.auto_on
+        """
+        if overwrite
+        else "DO NOTHING"
+    )
+    await conn.execute(
+        f"""
+        INSERT INTO stream_destinations (id, platform, name, server_url, stream_key, auto_on)
+        VALUES ($1, 'tiktok', $2, $3, $4, $5)
+        ON CONFLICT (id) {on_conflict}
+        """,  # noqa: S608 - two constant clauses
+        _uuid(destination_id),
+        CONFIG_TIKTOK_NAME,
+        values["server_url"],
+        values["stream_key"],
+        auto_on,
+    )
+    return destination_id
+
+
+Start = tuple[str, datetime]
+"""A broadcast and the moment Start was last pressed on it (``started_at``)."""
+
+
+async def latest_start(conn: asyncpg.Connection) -> Start | None:
+    """The broadcast on air that was started last."""
+    row = await conn.fetchrow(
+        """
+        SELECT id, started_at FROM broadcasts
+         WHERE status IN ('live', 'paused') AND started_at IS NOT NULL
+         ORDER BY started_at DESC, id
+         LIMIT 1
+        """
+    )
+    return (str(row["id"]), row["started_at"]) if row is not None else None
+
+
+async def switched_starts(conn: asyncpg.Connection) -> set[Start]:
+    """Broadcasts on air that already have a switch, on or off, for an auto destination."""
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT b.id, b.started_at
+          FROM broadcast_outputs o
+          JOIN broadcasts b ON b.id = o.broadcast_id
+          JOIN stream_destinations d ON d.id = o.destination_id
+         WHERE d.auto_on AND b.status IN ('live', 'paused') AND b.started_at IS NOT NULL
+        """
+    )
+    return {(str(r["id"]), r["started_at"]) for r in rows}
+
+
+async def auto_destinations(conn: asyncpg.Connection) -> list[str]:
+    """Destinations switched on by themselves for each session as Start is pressed."""
+    rows = await conn.fetch("SELECT id FROM stream_destinations WHERE auto_on ORDER BY created_at")
+    return [str(r["id"]) for r in rows]
+
+
+async def take_over(conn: asyncpg.Connection, broadcast_id: str, destination_id: str) -> bool:
+    """Give ``destination_id`` to one broadcast on air; whether it took.
+
+    Switches it on for ``broadcast_id`` and off for every other broadcast on
+    air, since one stream key carries one stream. Does nothing when the
+    broadcast is no longer on air or the destination was deleted meanwhile.
+    """
+    bid, did = _uuid(broadcast_id), _uuid(destination_id)
+    async with conn.transaction():
+        took = await conn.fetchval(
+            """
+            INSERT INTO broadcast_outputs (broadcast_id, destination_id, enabled)
+            SELECT b.id, d.id, TRUE
+              FROM broadcasts b, stream_destinations d
+             WHERE b.id = $1 AND d.id = $2 AND b.status IN ('live', 'paused')
+            ON CONFLICT (broadcast_id, destination_id) DO UPDATE SET enabled = TRUE
+            RETURNING TRUE
+            """,
+            bid,
+            did,
+        )
+        if not took:
+            return False
+        await conn.execute(
+            """
+            UPDATE broadcast_outputs o SET enabled = FALSE
+              FROM broadcasts b
+             WHERE b.id = o.broadcast_id AND o.destination_id = $2 AND o.broadcast_id <> $1
+               AND o.enabled AND b.status IN ('live', 'paused')
+            """,
+            bid,
+            did,
+        )
+    return True
 
 
 async def delete_destination(conn: asyncpg.Connection, destination_id: str) -> None:
@@ -198,7 +334,7 @@ async def list_outputs(conn: asyncpg.Connection, broadcast_id: str) -> list[Outp
         raise RestreamError("Không tìm thấy phiên livestream.", status_code=404)
     rows = await conn.fetch(
         """
-        SELECT d.id, d.platform, d.name, d.server_url, d.stream_key, d.created_at,
+        SELECT d.id, d.platform, d.name, d.server_url, d.stream_key, d.auto_on, d.created_at,
                d.updated_at, o.enabled, o.state, o.detail, o.state_at
           FROM stream_destinations d
           LEFT JOIN broadcast_outputs o ON o.destination_id = d.id AND o.broadcast_id = $1
