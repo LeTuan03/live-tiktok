@@ -30,3 +30,4 @@ logs/
 # Temporary files
 tmp/
 temp/
+dist/
