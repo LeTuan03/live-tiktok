@@ -9,7 +9,7 @@
 // playhead without touching the server.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Copy, ExternalLink } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { ApiError } from "@/lib/api";
@@ -29,8 +29,9 @@ import type { Playhead } from "@/lib/broadcast/timeline";
 import type { Broadcast, ControlAction } from "@/lib/broadcast/types";
 import { describeError } from "@/lib/studio/api";
 import { useToast } from "@/lib/ui/toast";
+import { RestreamPanel } from "@/components/restream/RestreamPanel";
 import { StudioNav } from "@/components/studio/StudioNav";
-import { Badge, Button, ErrorNote, inputClass, Panel } from "@/components/studio/ui";
+import { Badge, ErrorNote } from "@/components/studio/ui";
 import { ControlDesk, type DeskMode } from "./ControlDesk";
 import { type Edit, PlaylistEditor } from "./PlaylistEditor";
 import { SchedulePreview } from "./SchedulePreview";
@@ -179,7 +180,7 @@ function Studio({ broadcast }: { broadcast: Broadcast }) {
               busy={mutation.isPending}
             />
             <SchedulePreview broadcast={broadcast} />
-            <OutputPanel broadcastId={broadcast.id} />
+            <RestreamPanel broadcastId={broadcast.id} onAir={onAir} />
           </div>
         </div>
       </div>
@@ -229,38 +230,5 @@ function Header({ broadcast, edit }: { broadcast: Broadcast; edit: Edit }) {
         <ExternalLink className="h-4 w-4" /> Mở màn hình phát
       </a>
     </header>
-  );
-}
-
-function OutputPanel({ broadcastId }: { broadcastId: string }) {
-  const [copied, setCopied] = useState(false);
-  const [origin, setOrigin] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
-  const url = `${origin}/onair/${broadcastId}`;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      window.prompt("Sao chép đường dẫn:", url);
-    }
-  };
-  return (
-    <Panel title="Phát lên TikTok Live, YouTube Live">
-      <p className="text-sm text-studio-muted">
-        Màn hình phát là trang 9:16 chỉ có video, luôn đồng bộ với phòng điều khiển này. Trong OBS
-        Studio, thêm nguồn <strong className="text-studio-fg">Browser</strong> với đường dẫn dưới
-        đây (kích thước 1080x1920), rồi phát lên TikTok Live hoặc YouTube Live bằng stream key của
-        bạn. Thêm <code>?clean=1</code> để ẩn thẻ sản phẩm và nhãn LIVE.
-      </p>
-      <div className="mt-3 flex gap-2">
-        <input readOnly value={url} className={inputClass} aria-label="Đường dẫn màn hình phát" />
-        <Button onClick={copy} className="shrink-0">
-          {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          {copied ? "Đã chép" : "Sao chép"}
-        </Button>
-      </div>
-    </Panel>
   );
 }

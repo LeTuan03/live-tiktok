@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     # CPU load (0 to 1) above which the worker stops accepting new jobs.
     # Ignored when ENVIRONMENT is "development", where the worker always accepts.
     AGENT_LOAD_THRESHOLD: float = 0.7
+    # Where the worker's health server listens. Empty host means every
+    # interface (the livekit-agents default) and no port means its default
+    # (8081). The Windows desktop app binds 127.0.0.1 so Windows Firewall
+    # does not prompt on first launch.
+    AGENT_HTTP_HOST: str = ""
+    AGENT_HTTP_PORT: int | None = None
 
     # Database (separate Neon project from soshop)
     DATABASE_URL: str | None = None
@@ -111,6 +117,24 @@ class Settings(BaseSettings):
     PROMO_TRANSCRIBE_MODEL: str = "whisper-large-v3"
     # Give up on one shot after this long in Flow's queue.
     PROMO_SHOT_TIMEOUT_S: float = 600.0
+
+    # Restreaming on-air broadcasts to TikTok Live, Shopee Live and other RTMP
+    # ingests set up in the studio (soshop.restream, page /studio/channels).
+    # Runs inside the API process and needs ffmpeg on PATH. With several API
+    # processes, leave it on in exactly one: two would push the same stream key.
+    RESTREAM_ENABLED: bool = True
+    # The pushed stream, vertical 9:16. 720x1280 at 2500 kbps suits a laptop
+    # CPU and an ordinary upload; 1080x1920 at about 4500 kbps looks better on
+    # TikTok if the machine and the upload keep up.
+    RESTREAM_WIDTH: int = Field(default=720, ge=240, le=2160)
+    RESTREAM_HEIGHT: int = Field(default=1280, ge=240, le=3840)
+    RESTREAM_FPS: int = Field(default=30, ge=15, le=60)
+    RESTREAM_VIDEO_KBPS: int = Field(default=2500, ge=300, le=12000)
+    RESTREAM_AUDIO_KBPS: int = Field(default=128, ge=64, le=320)
+    # libx264 preset: a faster preset uses less CPU and looks worse at the same bitrate.
+    RESTREAM_X264_PRESET: Literal[
+        "ultrafast", "superfast", "veryfast", "faster", "fast", "medium"
+    ] = "veryfast"
 
     # OpenTelemetry tracing — disabled by default. When `OTEL_ENABLED` is
     # true the FastAPI auto-instrumentor is installed; if a non-empty

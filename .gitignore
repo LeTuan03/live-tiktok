@@ -33,3 +33,8 @@ temp/
 
 # Release bundles (tools/build-release.ps1)
 dist/
+
+# Desktop app build (desktop/build-app.ps1): downloads and .NET outputs
+desktop/.cache/
+desktop/**/bin/
+desktop/**/obj/

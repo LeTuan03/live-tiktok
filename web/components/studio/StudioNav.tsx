@@ -2,9 +2,10 @@
 
 // Top navigation shared by the studio pages. The three steps of the
 // pre-rendered livestream flow get one tab each: products, AI videos made
-// with Google Flow, and the livestream sessions that play them.
+// with Google Flow, and the livestream sessions that play them. "Kênh phát"
+// holds where sessions are pushed to (TikTok Live, Shopee Live, RTMP).
 
-import { Clapperboard, LayoutDashboard, Package, Radio } from "lucide-react";
+import { Cast, Clapperboard, LayoutDashboard, Package, Radio } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -13,6 +14,7 @@ const TABS = [
   { href: "/studio/products", label: "1. Sản phẩm", icon: Package, exact: false },
   { href: "/studio/videos", label: "2. Video AI", icon: Clapperboard, exact: false },
   { href: "/studio/live", label: "3. Phiên livestream", icon: Radio, exact: false },
+  { href: "/studio/channels", label: "Kênh phát", icon: Cast, exact: false },
 ] as const;
 
 export function StudioNav() {

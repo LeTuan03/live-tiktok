@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from livekit.agents import llm
 
@@ -367,18 +367,23 @@ def main() -> None:
     # CPU is routinely saturated, so every dispatch was silently dropped and the
     # stream never started. In development the worker therefore reports no load
     # and always accepts; elsewhere the threshold is configurable.
+    http: dict[str, Any] = {"host": settings.AGENT_HTTP_HOST}
+    if settings.AGENT_HTTP_PORT is not None:
+        http["port"] = settings.AGENT_HTTP_PORT
     if settings.ENVIRONMENT == "development":
         options = WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name=settings.AGENT_NAME,
             load_fnc=lambda: 0.0,
             load_threshold=float("inf"),
+            **http,
         )
     else:
         options = WorkerOptions(
             entrypoint_fnc=entrypoint,
             agent_name=settings.AGENT_NAME,
             load_threshold=settings.AGENT_LOAD_THRESHOLD,
+            **http,
         )
     cli.run_app(options)
 
